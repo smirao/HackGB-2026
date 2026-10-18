@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import getpass
 import math
 import os
 import sys
@@ -9,10 +10,35 @@ from pathlib import Path
 
 import cv2
 import httpx
+from dotenv import dotenv_values, set_key
 from fastapi import HTTPException
 
 from stationwatch.jev import classify_jpeg
 from worker_webpage import prepare_image
+
+ENV_FILE = Path(__file__).resolve().with_name(".env")
+
+
+def get_api_key(env_path=None):
+    """Load the saved key, or save an exported/prompted key for later runs."""
+    env_path = Path(env_path) if env_path is not None else ENV_FILE
+    saved_key = (dotenv_values(env_path, interpolate=False).get("TYPESAFE_API_KEY") or "").strip()
+    key = os.environ.get("TYPESAFE_API_KEY", "").strip() or saved_key
+    if not key:
+        if not sys.stdin.isatty():
+            raise RuntimeError(
+                "No TypeSafe API key saved. Run this script in a terminal to enter and save it, "
+                "or add TYPESAFE_API_KEY to the project's .env file."
+            )
+        key = getpass.getpass("TypeSafe API key (will be saved to .env): ").strip()
+    if not key or any(char in key for char in "\r\n\0"):
+        raise RuntimeError("The TypeSafe API key must be a nonempty, single-line value.")
+    if key != saved_key:
+        # New files are private; set_key preserves other settings and quotes the value.
+        env_path.touch(mode=0o600, exist_ok=True)
+        set_key(env_path, "TYPESAFE_API_KEY", key, quote_mode="always")
+        print(f"Saved TYPESAFE_API_KEY to {env_path}", file=sys.stderr)
+    return key
 
 
 async def report_frame(client, frame, elapsed, task, key, model):
@@ -101,15 +127,19 @@ def main():
     parser.add_argument("--interval", type=float, default=1.0, help="Seconds between samples (default: 1)")
     parser.add_argument("--max-in-flight", type=int, default=8, help="Concurrent request limit (default: 8)")
     args = parser.parse_args()
-    key = os.environ.get("TYPESAFE_API_KEY", "").strip()
-    if not key:
-        parser.error("Set TYPESAFE_API_KEY in your terminal first.")
     if not 1 <= len(args.task.strip()) <= 2000:
         parser.error("--task must contain between 1 and 2000 characters.")
     if not math.isfinite(args.interval) or args.interval <= 0:
         parser.error("--interval must be a finite positive number.")
     if args.max_in_flight < 1:
         parser.error("--max-in-flight must be at least 1.")
+    try:
+        key = get_api_key()
+    except (RuntimeError, OSError) as exc:
+        parser.error(str(exc))
+    except (EOFError, KeyboardInterrupt):
+        print("API key setup cancelled.", file=sys.stderr)
+        return 130
     source = int(args.source) if args.source.isdecimal() else args.source
     print(f"Sampling every {args.interval:g}s. Sending frames to Jev. Press Ctrl+C to stop.", flush=True)
     try:

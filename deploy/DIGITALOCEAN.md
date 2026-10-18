@@ -6,7 +6,9 @@ Source Directory. Keep Build Command at its default so the buildpack runs
 Keep `requirements.txt`, `Pipfile`, `poetry.lock`, and `setup.py` absent so only
 uv is detected. The main dependencies install only the PostgreSQL hub; camera,
 ML, MongoDB, and development dependencies are optional extras.
-The root `.python-version` and legacy `runtime.txt` both select Python 3.14.3.
+The root `.python-version` selects Python 3.14 and allows buildpack patch updates.
+Keep `runtime.txt` absent: the uv buildpack rejects it even when `.python-version`
+is also present.
 
 Set Run Command to the command in the root Procfile:
 

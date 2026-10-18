@@ -4,9 +4,15 @@
 
 ```bash
 uv sync --locked --extra camera
-export TYPESAFE_API_KEY='your TypeSafe API key'
 .venv/bin/python worker_video.py --source 0 --task "Assemble the parts on the workbench"
 ```
+
+On the first run, enter your TypeSafe API key at the hidden prompt. The script
+saves it as `TYPESAFE_API_KEY` in this project's `.env` and loads it automatically
+on future runs, including from a new terminal. If the key is already exported in
+your terminal, it is saved automatically instead. An exported key overrides and
+updates the saved key; other `.env` entries are preserved. You can also edit the
+`TYPESAFE_API_KEY` entry in `.env` directly. The file is ignored by Git.
 
 `worker_video.py` reads the webcam continuously and sends a current frame to Jev
 every second, starting with the first frame. Each printed result includes capture
@@ -35,6 +41,9 @@ uv sync --locked --extra camera
 export TYPESAFE_API_KEY='your TypeSafe API key'
 .venv/bin/python worker_webpage.py
 ```
+
+The webpage also loads this project's `.env`, so you can omit `export` once the
+video script has saved your key.
 
 Open **http://127.0.0.1:8001**. Upload a JPEG, PNG, or WebP image (up to 10 MB and 200 MP),
 describe the worker's assigned task, and select **Classify photo**. The page shows

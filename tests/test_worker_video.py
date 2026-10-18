@@ -2,13 +2,61 @@ import asyncio
 import json
 from email.parser import BytesParser
 from email.policy import default
+from stat import S_IMODE
 
 import cv2
 import httpx
 import numpy as np
 import pytest
+from dotenv import dotenv_values
 
-from worker_video import watch
+from worker_video import get_api_key, watch
+
+
+def test_prompt_saves_key_and_later_run_uses_it_without_environment(tmp_path, monkeypatch, capsys):
+    env_path = tmp_path / ".env"
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    monkeypatch.setattr("worker_video.sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("worker_video.getpass.getpass", lambda prompt: " test-secret ")
+    assert get_api_key(env_path) == "test-secret"
+    assert dotenv_values(env_path)["TYPESAFE_API_KEY"] == "test-secret"
+    assert S_IMODE(env_path.stat().st_mode) == 0o600
+    monkeypatch.setattr("worker_video.getpass.getpass", lambda prompt: pytest.fail("Unexpected key prompt"))
+    monkeypatch.setattr("worker_video.sys.stdin.isatty", lambda: False)
+    assert get_api_key(env_path) == "test-secret"
+    output = capsys.readouterr()
+    assert "test-secret" not in output.out + output.err
+
+
+def test_exported_key_is_saved_while_other_dotenv_settings_are_preserved(tmp_path, monkeypatch):
+    env_path = tmp_path / ".env"
+    env_path.write_text("# Local settings\nOTHER_SETTING='keep me'\nTYPESAFE_API_KEY='old-key'\n")
+    monkeypatch.setenv("TYPESAFE_API_KEY", "new-key-with-$-and-'-quote")
+    assert get_api_key(env_path) == "new-key-with-$-and-'-quote"
+    saved = dotenv_values(env_path, interpolate=False)
+    assert saved["TYPESAFE_API_KEY"] == "new-key-with-$-and-'-quote"
+    assert saved["OTHER_SETTING"] == "keep me"
+    assert "# Local settings" in env_path.read_text()
+
+
+def test_missing_key_without_terminal_has_clear_setup_error(tmp_path, monkeypatch):
+    env_path = tmp_path / ".env"
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    monkeypatch.setattr("worker_video.sys.stdin.isatty", lambda: False)
+    with pytest.raises(RuntimeError, match="Run this script in a terminal"):
+        get_api_key(env_path)
+    assert not env_path.exists()
+
+
+@pytest.mark.parametrize("key", ["", "secret\nINJECTED=value"])
+def test_invalid_prompted_key_is_not_saved(tmp_path, monkeypatch, key):
+    env_path = tmp_path / ".env"
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    monkeypatch.setattr("worker_video.sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("worker_video.getpass.getpass", lambda prompt: key)
+    with pytest.raises(RuntimeError, match="nonempty, single-line"):
+        get_api_key(env_path)
+    assert not env_path.exists()
 
 
 class FakeCapture:

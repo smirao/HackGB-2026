@@ -10,6 +10,7 @@ import cv2
 import httpx
 import numpy as np
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
@@ -117,6 +118,7 @@ def create_app(api_key=None, model="jev-latest", transport=None):
 
 
 def main():
+    load_dotenv(Path(__file__).resolve().with_name(".env"))
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8001)
     parser.add_argument("--model", default=os.environ.get("TYPESAFE_MODEL", "jev-latest"))
