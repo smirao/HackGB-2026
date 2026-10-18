@@ -1,9 +1,11 @@
 # DigitalOcean App Platform alert hub
 
 Use the **Python buildpack**, **Ubuntu 22.04**, and the **repository root** as
-Source Directory. Keep Build Command at its default so the buildpack installs
-the root `requirements.txt`. It takes precedence over `uv.lock` and excludes the
-camera/ML dependencies in `pyproject.toml`. Do not run `pip install .` for the hub.
+Source Directory. Keep Build Command at its default so the buildpack runs
+`uv sync --locked --no-default-groups` using `pyproject.toml` and `uv.lock`.
+Keep `requirements.txt`, `Pipfile`, `poetry.lock`, and `setup.py` absent so only
+uv is detected. The main dependencies install only the PostgreSQL hub; camera,
+ML, MongoDB, and development dependencies are optional extras.
 The root `.python-version` and legacy `runtime.txt` both select Python 3.14.3.
 
 Set Run Command to the command in the root Procfile:
@@ -11,6 +13,11 @@ Set Run Command to the command in the root Procfile:
 ```sh
 python -m stationwatch.hub
 ```
+
+The Procfile contains this single `web:` process. The buildpack installs packages
+with uv into its Python runtime and puts that runtime on `PATH`, so `python`
+uses the uv-installed environment. uv itself is only available during the build;
+do not change the production command to `uv run` or hard-code `.venv/bin/python`.
 
 Set HTTP Port to **8080**, health check protocol to **HTTP**, and health check
 path to **/healthz**. The process binds to `0.0.0.0` and defaults to port 8080.
@@ -87,9 +94,10 @@ uses another schema, map the queries in `stationwatch/postgres.py` to that schem
 ## Local smoke test
 
 ```sh
-python -m venv /tmp/stationwatch-hub
-/tmp/stationwatch-hub/bin/python -m pip install -r requirements.txt
-PORT=8080 /tmp/stationwatch-hub/bin/python -m stationwatch.hub
+# Use a new directory for a clean install without changing your local .venv.
+export UV_PROJECT_ENVIRONMENT="$(mktemp -d)/venv"
+uv sync --locked --no-default-groups
+PORT=8080 "$UV_PROJECT_ENVIRONMENT/bin/python" -m stationwatch.hub
 # In another terminal (no token or database required for liveness):
 curl --fail -i http://127.0.0.1:8080/healthz
 ```

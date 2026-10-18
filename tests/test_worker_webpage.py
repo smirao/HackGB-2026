@@ -68,7 +68,8 @@ def test_upload_calls_jev_with_image_and_task(choice, confidence, expected):
 
 
 @pytest.mark.parametrize("width,height,expected", [
-    (2400, 1800, (1176, 1568)), (20, 1000, (1000, 280)), (10, 10, (280, 280)),
+    (2400, 1800, (1176, 1568)), (8064, 6048, (1176, 1568)),
+    (20, 1000, (1000, 280)), (10, 10, (280, 280)),
 ])
 def test_images_are_prepared_for_jev_limits(width, height, expected):
     encoded = prepare_image(photo(width, height))

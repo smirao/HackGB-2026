@@ -1,16 +1,42 @@
 # StationWatch
 
+### Classify a video feed with Jev
+
+```bash
+uv sync --locked --extra camera
+export TYPESAFE_API_KEY='your TypeSafe API key'
+.venv/bin/python worker_video.py --source 0 --task "Assemble the parts on the workbench"
+```
+
+`worker_video.py` reads the webcam continuously and sends a current frame to Jev
+every second, starting with the first frame. Each printed result includes capture
+time, `on_task`, `off_task`, or `uncertain`, confidence, and Jev's original choice.
+It uses the same API request, image preparation, response validation, and 0.6
+confidence threshold as the photo webpage. Frames are sent to TypeSafe and are
+not saved locally.
+
+Use `--source 1` for another camera, `--source 'rtsp://host/stream'` for a stream,
+or `--source clips/example.mp4` for a video file played at its recorded frame rate.
+Pass `--model` (or set `TYPESAFE_MODEL`) to select a model, and `--interval 2` to
+sample every two seconds. Requests run concurrently so API latency does not pause
+capture; results may print out of order and are tagged with the sampled frame's
+time. At most eight requests are in flight (`--max-in-flight`); if they all remain
+busy, the script prints `SKIPPED` for that sample instead of building a backlog.
+API failures print `ERROR` and sampling continues. Ctrl+C stops capture; reaching
+the end of a video file waits for outstanding results and exits.
+
 ### Upload a photo and classify it with Jev
 
 Run the standalone local webpage (no camera, trained local model, or MongoDB required):
 
 ```bash
-# From this project directory, with the project dependencies installed:
+# From this project directory, install the photo webpage dependencies:
+uv sync --locked --extra camera
 export TYPESAFE_API_KEY='your TypeSafe API key'
 .venv/bin/python worker_webpage.py
 ```
 
-Open **http://127.0.0.1:8001**. Upload a JPEG, PNG, or WebP image (up to 10 MB),
+Open **http://127.0.0.1:8001**. Upload a JPEG, PNG, or WebP image (up to 10 MB and 200 MP),
 describe the worker's assigned task, and select **Classify photo**. The page shows
 **On task**, **Off task**, or **Uncertain**, plus Jev's confidence and probabilities.
 Results below 0.6 confidence are displayed as uncertain; this is a prototype
@@ -81,7 +107,7 @@ Use Python **3.11 or 3.12** for the widest MediaPipe/Raspberry Pi compatibility.
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e '.[dev]'
+python -m pip install -e '.[camera,dev]'
 stationwatch serve --demo
 ```
 
@@ -235,4 +261,4 @@ ruff check .
 
 Tests use fake cameras/reviewers, generated features, and mongomock's GridFS integration. They cover pipeline gates, bounded concurrency, dwell resets, evidence timestamps, authorization, group-separated training, upload retry/restart behavior, duplicate handling, preservation of review state, incomplete GridFS recovery, and hub video range requests. They do not validate attention accuracy or a real MongoDB deployment. Hardware camera/Pi performance and real Gemini/MongoDB connections require their respective hardware, deployments, and credentials. The pretrained image encoder has also passed a local LiteRT smoke test. No real worker-classification accuracy or Pi timing has been established.
 
-`uv.lock` records dependency versions. If you use uv, `uv sync --locked --extra lite --extra train --extra mongo --extra dev` installs the Pi inference/training/upload dependencies, or replace `lite` with `pose` for MediaPipe. Picamera2 remains an OS package when using a CSI camera.
+`uv.lock` records dependency versions. A plain `uv sync --locked` installs only the lightweight PostgreSQL hub dependencies. `uv sync --locked --extra camera` adds OpenCV, NumPy, and the HTTP client for the camera/demo and photo webpage. `uv sync --locked --extra lite --extra train --extra mongo --extra dev` installs the Pi inference/training/upload dependencies, or replace `lite` with `pose` for MediaPipe; `lite`, `pose`, and `train` each include the `camera` extra. Picamera2 remains an OS package when using a CSI camera.

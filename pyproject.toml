@@ -8,16 +8,17 @@ version = "0.1.0"
 description = "Raspberry Pi workstation observation and human review prototype"
 requires-python = ">=3.10"
 dependencies = [
-  "fastapi>=0.115,<1", "uvicorn>=0.30,<1", "numpy>=1.26,<3",
-  "opencv-contrib-python>=4.10,<5", "httpx>=0.27,<1", "pydantic>=2.9,<3",
+  "fastapi>=0.115,<1", "uvicorn>=0.30,<1", "pydantic>=2.9,<3",
+  "psycopg[binary]>=3.3.6,<4",
 ]
 
 [project.optional-dependencies]
-pose = ["mediapipe>=0.10.18,<0.11"]
-lite = ["ai-edge-litert>=2,<3"]
-train = ["scikit-learn>=1.5,<2", "joblib>=1.4,<2"]
+camera = ["numpy>=1.26,<3", "opencv-contrib-python>=4.10,<5", "httpx>=0.27,<1"]
+pose = ["stationwatch[camera]", "mediapipe>=0.10.18,<0.11"]
+lite = ["stationwatch[camera]", "ai-edge-litert>=2,<3"]
+train = ["stationwatch[camera]", "scikit-learn>=1.5,<2", "joblib>=1.4,<2"]
 mongo = ["pymongo>=4.10,<5"]
-dev = ["pytest>=8,<10", "ruff>=0.9,<1", "mongomock>=4.3,<5"]
+dev = ["pytest>=8,<10", "ruff>=0.9,<1", "mongomock>=4.3,<5", "httpx>=0.27,<1"]
 
 [project.scripts]
 stationwatch = "stationwatch.cli:main"
