@@ -1,0 +1,14 @@
+{
+  "station_id": "press-01",
+  "station_name": "Hydraulic press · Station 01",
+  "camera_backend": "picamera2",
+  "pose_backend": "movenet",
+  "pose_model_path": "models/movenet_lightning.tflite",
+  "width": 960,
+  "height": 540,
+  "fps": 15,
+  "sample_interval_s": 0.5,
+  "machine_center": [0.78, 0.5],
+  "workstation_polygon": [[0.15, 0.15], [0.9, 0.15], [0.9, 0.95], [0.15, 0.95]],
+  "data_dir": "data"
+}

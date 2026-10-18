@@ -205,6 +205,12 @@ cython_debug/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
+# Local workstation footage, training samples, and downloaded/trained model artifacts
+data/
+models/
+config.json
+.venv*/
+
 # Ruff stuff:
 .ruff_cache/
 
