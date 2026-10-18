@@ -69,7 +69,7 @@ def test_jev_streak_directly_produces_dashboard_event_and_original_evidence(agen
     assert event["review"]["confidence"] == result()["confidence"]
     assert "6.0 seconds" in event["review"]["reason"]
     assert event["captured_at"] == sample.captured_at and event["video_offset_s"] == 6
-    assert event["video_playback_start_s"] == 0 and event["clip_target_s"] == 15
+    assert event["video_playback_start_s"] == 0 and event["clip_target_s"] == 5
     assert event["session_id"] == sample.session_id
     assert (local.root / "snapshots" / (event["id"] + ".jpg")).read_bytes() == sample.jpeg
     assert local.upload_counts()["pending"] == 1
@@ -365,12 +365,12 @@ def test_forced_alert_bypasses_models_and_uploads_honestly_labeled_evidence(agen
     assert local.upload_counts() == {'pending': 0, 'failed': 0}
 
 
-def test_forced_alert_waits_for_fifteen_encoded_seconds(agent_setup, monkeypatch):
+def test_forced_alert_waits_for_five_encoded_seconds(agent_setup, monkeypatch):
     import stationwatch.pi_agent as module
 
     agent, local, sample = agent_setup
     samples = iter(replace(sample, monotonic_s=time.monotonic(), video_offset_s=offset)
-                   for offset in (0, 5, 14.8, 15 - 1 / agent.settings.fps))
+                   for offset in (0, 1, 4.8, 5 - 1 / agent.settings.fps))
     snapshot = Mock(side_effect=lambda: next(samples))
 
     async def tick(_):
@@ -384,8 +384,8 @@ def test_forced_alert_waits_for_fifteen_encoded_seconds(agent_setup, monkeypatch
     assert snapshot.call_count == 4
     feed.start.assert_called_once()
     event = local.list()[0]
-    assert event['clip_target_s'] == 15 and event['video_playback_start_s'] == 0
-    assert event['video_offset_s'] == 15 - 1 / agent.settings.fps
+    assert event['clip_target_s'] == 5 and event['video_playback_start_s'] == 0
+    assert event['video_offset_s'] == 5 - 1 / agent.settings.fps
 
 
 @pytest.mark.parametrize('failure', ['alert', 'clip'])

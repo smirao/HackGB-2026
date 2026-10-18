@@ -2,7 +2,7 @@
 
 ### Raspberry Pi: camera → Jev → PostgreSQL dashboard
 
-The agent calls Jev every second and sends an alert, snapshot, and 15-second video
+The agent calls Jev every second and sends an alert, snapshot, and 5-second video
 to PostgreSQL after **more than five seconds** of consecutive Jev off-task
 observations. The Pi agent does not use Gemini.
 
@@ -121,7 +121,7 @@ python -m stationwatch.hub
 
 Open **http://127.0.0.1:8080** on that computer. Alerts appear when Jev's off-task
 observations span more than five seconds. Snapshots upload first; video becomes available once
-its 15-second recording segment closes. Playback starts at the beginning so the
+its 5-second recording segment closes. Playback starts at the beginning so the
 full clip is visible. Database failures keep confirmed alerts
 in a local queue for retry.
 
@@ -182,7 +182,7 @@ python pi_agent.py --force-alert \
   --station-id workbench-01
 ```
 
-This records a 15-second video, sends **one manual test
+This records a 5-second video, sends **one manual test
 alert** with its snapshot and video to PostgreSQL, then exits. It bypasses Jev
 and the duration gate, so no API key is required for this command.
 The dashboard shows **Manual test alert** and **AI review: Bypassed for test**.

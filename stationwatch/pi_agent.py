@@ -34,7 +34,7 @@ from .temporal import SustainedFlag
 from .uploads import EvidenceUploader
 
 log = logging.getLogger(__name__)
-ALERT_CLIP_SECONDS = 15
+ALERT_CLIP_SECONDS = 5
 
 
 def utc_now():

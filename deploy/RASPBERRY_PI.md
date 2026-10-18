@@ -117,7 +117,7 @@ With the camera streamer running, use another Pi terminal:
   --source http://127.0.0.1:5000/video_feed --station-id workbench-01
 ```
 
-This captures a snapshot and a 15-second video, uploads one alert,
+This captures a snapshot and a 5-second video, uploads one alert,
 and exits. It bypasses Jev and the duration gate; the API key and `--task`
 are optional for this command. PostgreSQL credentials are still required. The
 dashboard labels it **Manual test alert**, with **AI review: Bypassed for test**.
@@ -135,7 +135,7 @@ keeps its Jev duration gate.
 
 Jev off-task alerts and snapshots are committed to a local SQLite outbox before
 upload. The uploader sends the alert plus snapshot in one PostgreSQL transaction,
-then sends its video once the 15-second H.264 MP4 segment is finalized. Until then,
+then sends its video once the 5-second H.264 MP4 segment is finalized. Until then,
 the website can display the alert and snapshot; its video action asks you to retry.
 Database outages retry with backoff up to five minutes. Stable IDs make retries
 idempotent and preserve the manager's reviewed status. No database calls run when
@@ -144,7 +144,7 @@ to PostgreSQL; only off-task alerts and their containing segments are uploaded.
 Jev receives the sampled frames. No frames are sent to Gemini.
 The dashboard plays new clips from the beginning, showing the full recording
 rather than seeking to the last few seconds around the alert. The alert's actual
-offset remains recorded in the event metadata. A clip is the 15-second segment
+offset remains recorded in the event metadata. A clip is the 5-second segment
 containing the flagged frame, so the amount of footage before and after that frame
 depends on its position in the segment.
 
@@ -155,10 +155,10 @@ segments expire after 24 hours. Confirmed events and their recordings are retain
 locally and in PostgreSQL until manually removed. Allow sufficient disk space.
 A containing segment can include normal behavior around the alert. Encoded video
 offsets follow the actual frame count. Segment rollover uses frame count to keep
-completed uploaded clips 15 seconds long even when capture is slower than the
+completed uploaded clips 5 seconds long even when capture is slower than the
 configured FPS; under capture lag, collecting that footage can take longer than
-15 seconds and playback speed can differ from wall-clock duration. Manual test
-mode also waits for 15 seconds of encoded footage before uploading. If capture
+5 seconds and playback speed can differ from wall-clock duration. Manual test
+mode also waits for 5 seconds of encoded footage before uploading. If capture
 is interrupted or the agent is stopped before an active segment fills, the
 finalized recording can be shorter.
 

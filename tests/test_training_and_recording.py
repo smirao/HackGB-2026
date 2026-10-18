@@ -106,25 +106,25 @@ def test_invalid_geometry_and_odd_recording_dimensions_are_rejected():
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg is not installed")
-def test_pi_recording_upload_contains_fifteen_seconds_even_when_capture_is_slow(tmp_path):
+def test_pi_recording_upload_contains_five_seconds_even_when_capture_is_slow(tmp_path):
     store = EventStore(tmp_path)
-    settings = Settings(width=160, height=120, fps=10, segment_seconds=15)
+    settings = Settings(width=160, height=120, fps=10, segment_seconds=5)
     recorder = SegmentRecorder(settings, store, duration_by_frames=True)
     image = np.zeros((120, 160, 3), np.uint8)
     try:
         first, _ = recorder.write(image, 100)
-        for i in range(1, 150):
+        for i in range(1, 50):
             segment, _ = recorder.write(image, 100 + i * 0.5)
             assert segment == first
         path = tmp_path / 'recordings' / first
         assert not path.exists()  # The file is still being encoded, not ready to upload.
-        second, offset = recorder.write(image, 175)
+        second, offset = recorder.write(image, 125)
         assert second != first and offset == 0
         capture = cv2.VideoCapture(str(path))
         try:
             assert capture.read()[0]
-            assert capture.get(cv2.CAP_PROP_FRAME_COUNT) == 150
-            assert capture.get(cv2.CAP_PROP_FRAME_COUNT) / capture.get(cv2.CAP_PROP_FPS) == 15
+            assert capture.get(cv2.CAP_PROP_FRAME_COUNT) == 50
+            assert capture.get(cv2.CAP_PROP_FRAME_COUNT) / capture.get(cv2.CAP_PROP_FPS) == 5
         finally:
             capture.release()
     finally:
