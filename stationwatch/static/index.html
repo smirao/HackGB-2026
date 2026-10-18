@@ -7,12 +7,12 @@
     <title>StationWatch · Workstation review</title>
     <style>
       :root {
-        --bg: #101413;
-        --panel: #191e1c;
-        --line: #303834;
-        --muted: #9daa9f;
-        --text: #edf2ec;
-        --green: #c1f08c;
+        --bg: #101010;
+        --panel: #1a1a1a;
+        --line: #333333;
+        --muted: #a3a3a3;
+        --text: #ededed;
+        --accent: #e5e5e5;
         --amber: #edbf73;
         --red: #f39b8e;
       }
@@ -37,7 +37,7 @@
       }
       button:focus-visible,
       input:focus-visible {
-        outline: 2px solid var(--green);
+        outline: 2px solid var(--accent);
         outline-offset: 4px;
       }
       button:disabled {
@@ -61,7 +61,7 @@
         letter-spacing: -0.7px;
       }
       .brand svg {
-        color: var(--green);
+        color: var(--accent);
       }
       .brand span {
         font-weight: 400;
@@ -81,7 +81,7 @@
         font-size: 11px;
         font-weight: 600;
         letter-spacing: 0.6px;
-        color: var(--green);
+        color: var(--accent);
         white-space: nowrap;
       }
       .pill.amber {
@@ -95,7 +95,7 @@
       .eyebrow {
         font-size: 11px;
         letter-spacing: 1.8px;
-        color: var(--green);
+        color: var(--accent);
         font-weight: 650;
         text-transform: uppercase;
       }
@@ -182,14 +182,14 @@
         width: 7px;
         height: 7px;
         border-radius: 50%;
-        background: var(--green);
+        background: var(--accent);
         display: inline-block;
         margin-right: 7px;
       }
       .camera {
         aspect-ratio: 16/9;
         position: relative;
-        background: #121715;
+        background: #141414;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -208,8 +208,8 @@
         left: 15px;
         font-size: 10px;
         letter-spacing: 1px;
-        background: #111b16dd;
-        border: 1px solid #718c5266;
+        background: #171717dd;
+        border: 1px solid #73737366;
         padding: 4px 9px;
         border-radius: 4px;
         z-index: 1;
@@ -269,10 +269,10 @@
       }
       .event:hover,
       .event.selected {
-        background: #242e26;
+        background: #292929;
       }
       .event.selected {
-        box-shadow: inset 3px 0 var(--green);
+        box-shadow: inset 3px 0 var(--accent);
       }
       .event-top {
         display: flex;
@@ -315,13 +315,13 @@
       .detail video {
         width: 100%;
         border-radius: 6px;
-        background: #101413;
+        background: #101010;
         margin-top: 14px;
       }
       .reason {
         font-size: 12px;
         line-height: 1.7;
-        color: #c2cdc3;
+        color: #c7c7c7;
       }
       .detail dl {
         display: grid;
@@ -344,9 +344,9 @@
         margin-top: 20px;
       }
       .btn {
-        background: var(--green);
-        border: 1px solid var(--green);
-        color: #182410;
+        background: var(--accent);
+        border: 1px solid var(--accent);
+        color: #171717;
         border-radius: 6px;
         padding: 8px 12px;
         font-weight: 600;
@@ -355,7 +355,7 @@
       .btn.secondary {
         background: transparent;
         color: var(--text);
-        border-color: #465046;
+        border-color: #4a4a4a;
       }
       .video-note {
         font-size: 11px;
@@ -400,16 +400,16 @@
         place-items: center;
         width: 23px;
         height: 23px;
-        border: 1px solid #52634b;
+        border: 1px solid #595959;
         border-radius: 50%;
-        color: var(--green);
+        color: var(--accent);
         font-size: 10px;
       }
       .arrow {
-        color: #6a7a6b;
+        color: #737373;
       }
       .footer {
-        color: #7e8d80;
+        color: #858585;
         margin-top: 24px;
         font-size: 11px;
         display: flex;
@@ -429,7 +429,7 @@
         width: 90%;
       }
       dialog::backdrop {
-        background: #090e0bcc;
+        background: #0a0a0acc;
         backdrop-filter: blur(6px);
       }
       dialog h2 {
@@ -440,7 +440,7 @@
         width: 100%;
         margin: 20px 0 10px;
         background: var(--bg);
-        border: 1px solid #475348;
+        border: 1px solid #4d4d4d;
         border-radius: 6px;
         padding: 10px;
         color: var(--text);
@@ -821,7 +821,7 @@
               : "Baseline mode uses a head-orientation and dwell rule. It is not a trained attention classifier.";
           $("station-status").textContent = s.running ? "Streaming" : "Offline";
           $("live-dot").style.background = s.running
-            ? "var(--green)"
+            ? "var(--accent)"
             : "var(--red)";
           $("station-name").textContent = s.station_name;
           $("pending").textContent = s.events.pending;
