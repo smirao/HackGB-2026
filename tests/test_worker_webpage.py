@@ -18,7 +18,7 @@ def photo(width=640, height=480):
 
 
 def result(choice="on_task", confidence=0.9):
-    probabilities = {label: 0.05 for label in ["on_task", "off_task"]}
+    probabilities = {label: 0.025 for label in ["on_task", "off_task", "no_person"]}
     probabilities[choice] = 0.95
     return {
         "model": "jev-test",
@@ -31,8 +31,10 @@ def result(choice="on_task", confidence=0.9):
 @pytest.mark.parametrize("choice,confidence,expected", [
     ("on_task", 0.9, "on_task"), ("off_task", 0.9, "off_task"),
     ("on_task", 0.4, "on_task"), ("off_task", 0.4, "off_task"),
+    ("no_person", 0.9, "no_person"), ("no_person", 0.4, "no_person"),
 ])
-def test_upload_calls_jev_with_image_and_task(choice, confidence, expected):
+@pytest.mark.parametrize("task", ["Assemble parts", "Manipulate joystick and observe the laptop"])
+def test_upload_calls_jev_with_image_and_task(choice, confidence, expected, task):
     def respond(request):
         assert str(request.url) == "https://api.typesafe.ai/v1/systemone"
         assert request.headers["Authorization"] == "Bearer private-key"
@@ -43,10 +45,10 @@ def test_upload_calls_jev_with_image_and_task(choice, confidence, expected):
         parts = list(message.iter_parts())
         assert parts[0].get_param("name", header="content-disposition") == "request"
         body = json.loads(parts[0].get_payload(decode=True))
-        assert body["state"]["assigned_task"] == "Assemble parts"
+        assert body["state"]["assigned_task"] == task
         asset = body["state"]["photo"]
         assert body["assets"][asset]["part"] == "photo"
-        assert set(body["questions"]["task_status"]["criteria"]) == {"on_task", "off_task"}
+        assert set(body["questions"]["task_status"]["criteria"]) == {"on_task", "off_task", "no_person"}
         assert "consecutive" not in body["questions"]["task_status"]["instructions"]
         assert parts[1].get_param("name", header="content-disposition") == "photo"
         image = cv2.imdecode(np.frombuffer(parts[1].get_payload(decode=True), np.uint8), cv2.IMREAD_COLOR)
@@ -58,13 +60,13 @@ def test_upload_calls_jev_with_image_and_task(choice, confidence, expected):
         setup = client.get("/api/setup")
         assert setup.json()["configured"] is True
         assert "private-key" not in setup.text
-        response = client.post("/api/classify", params={"task": "Assemble parts"}, content=photo(),
+        response = client.post("/api/classify", params={"task": task}, content=photo(),
                                headers={"content-type": "image/png"})
         assert response.status_code == 200
         assert response.json()["decision"] == expected
         assert response.json()["model_choice"] == choice
         assert response.json()["confidence"] == confidence
-        assert set(response.json()["probabilities"]) == {"on_task", "off_task"}
+        assert set(response.json()["probabilities"]) == {"on_task", "off_task", "no_person"}
         assert response.headers["cache-control"] == "no-store"
 
 

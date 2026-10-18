@@ -84,7 +84,7 @@ class FakeCapture:
 
 
 def answer(choice="on_task", confidence=0.9):
-    probabilities = {label: 0.05 for label in ("on_task", "off_task")}
+    probabilities = {label: 0.025 for label in ("on_task", "off_task", "no_person")}
     probabilities[choice] = 0.95
     return {"model": "jev-test", "answers": {"task_status": {
         "type": "choice", "choice": choice, "confidence": confidence, "probabilities": probabilities,

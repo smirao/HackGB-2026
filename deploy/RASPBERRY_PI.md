@@ -35,8 +35,11 @@ Tasks naming a joystick or controller activate a detailed rubric in Jev.
 On task requires both a hand in an operating position on the controls
 and head/face orientation toward the machine. Clearly looking away is off task
 even with a hand still on the controller; visible hands off the controls or
-looking at a separate phone also counts as off task. Jev always chooses on task
-or off task, reporting lower confidence when visual evidence is ambiguous.
+looking at a separate phone also counts as off task. Jev first checks whether a
+real person is visible. Empty frames return `no_person`, reset the off-task
+streak, and create no alert or upload. A visible hand or partial body counts as
+a person being present. When a person is present, Jev chooses on task or off task,
+reporting lower confidence when visual evidence is ambiguous.
 Neither motion nor precise eye fixation must be proven from
 one frame. The duration gate determines when to save an alert.
 The console includes Jev's `model_choice` and `confidence`; there is no confidence
@@ -88,7 +91,7 @@ using the Flask page. Network streams have five-second open/read timeouts.
 - The agent continuously reads and records the camera while sending a current
   frame to Jev every second. Requests can overlap, up to eight in flight.
 - Results are processed in capture order even when API responses arrive out of
-  order. Any valid `off_task` result starts or extends a streak; `on_task`,
+  order. Any valid `off_task` result starts or extends a streak; `on_task`, `no_person`,
   API failures, skipped sample ticks, and capture gaps over 1.5 seconds
   break it. Responses older than 20 seconds do not extend a streak. Jev requests
   time out after 15 seconds; missed sampling times are skipped without catch-up
@@ -98,8 +101,11 @@ using the Flask page. Network streams have five-second open/read timeouts.
   At exact one-second intervals, samples at t=0 through t=6 satisfy the gate.
   Capture times determine the duration; API latency does not extend the streak.
   There is no second AI review.
-- Jev is binary and has no confidence cutoff or `--jev-threshold` option. Confidence
-  is retained in the alert for inspection and is not a measured accuracy guarantee.
+- Jev returns `on_task`, `off_task`, or `no_person`, with no confidence cutoff or
+  `--jev-threshold` option. Empty frames behave like on-task frames for alerting:
+  they produce no upload and reset the streak, so a returning worker must start
+  a fresh off-task streak. Confidence is retained in alerts for inspection and
+  is not a measured accuracy guarantee.
 - A saved alert starts a 30-second cooldown (`--cooldown` overrides it), so a
   sustained episode does not create an alert every second.
 

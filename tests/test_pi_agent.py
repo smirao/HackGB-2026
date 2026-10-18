@@ -75,7 +75,7 @@ def test_jev_streak_directly_produces_dashboard_event_and_original_evidence(agen
     assert local.upload_counts()["pending"] == 1
 
 
-@pytest.mark.parametrize("interruption", ["on_task", "error", "skipped"])
+@pytest.mark.parametrize("interruption", ["on_task", "no_person", "error", "skipped"])
 def test_interrupted_observations_restart_streak(agent_setup, interruption):
     agent, local, sample = agent_setup
 
@@ -85,7 +85,7 @@ def test_interrupted_observations_restart_streak(agent_setup, interruption):
                 continue
             answer = result()
             if i == 3:
-                if interruption == "on_task":
+                if interruption in {"on_task", "no_person"}:
                     answer = result(interruption)
                 elif interruption == "error":
                     answer = None
@@ -104,7 +104,7 @@ def test_stale_responses_cannot_create_alerts(agent_setup):
     assert agent.gate.elapsed_s == 0
 
 
-def test_binary_off_task_streak_counts_low_confidence_choices(agent_setup):
+def test_off_task_streak_counts_low_confidence_choices(agent_setup):
     agent, local, sample = agent_setup
 
     async def exercise():
@@ -190,7 +190,7 @@ def test_real_jev_client_samples_concurrently_and_consumes_in_capture_order(agen
             completed.append(index)
             return httpx.Response(200, json={"model": "jev-test", "answers": {"task_status": {
                 "type": "choice", "choice": "off_task", "confidence": 0.95,
-                "probabilities": {"on_task": 0.05, "off_task": 0.95},
+                "probabilities": {"on_task": 0.025, "off_task": 0.95, "no_person": 0.025},
             }}})
         finally:
             active -= 1
@@ -563,3 +563,66 @@ sys.meta_path.insert(0, NoGemini())
 import stationwatch.pi_agent
 '''
     subprocess.run([sys.executable, '-c', code], check=True, cwd=Path(__file__).resolve().parents[1])
+
+
+def test_no_person_response_never_creates_alert_or_upload(agent_setup):
+    agent, local, sample = agent_setup
+    remote = Mock()
+    ok, jpeg = cv2.imencode('.jpg', np.zeros((300, 300, 3), np.uint8))
+    assert ok
+    sample = replace(sample, jpeg=jpeg.tobytes())
+    payload = {'model': 'jev-test', 'answers': {'task_status': {
+        'type': 'choice', 'choice': 'no_person', 'confidence': 0.95,
+        'probabilities': {'on_task': 0.01, 'off_task': 0.01, 'no_person': 0.98},
+    }}}
+
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=payload)
+        )) as client:
+            for sequence in range(9):
+                frame = replace(sample, sequence=sequence, monotonic_s=sample.monotonic_s + sequence)
+                answer = await agent.classify(client, frame)
+                assert answer['decision'] == 'no_person'
+                agent.accept(frame, answer)
+        assert agent.save_task is None
+
+    asyncio.run(exercise())
+    assert agent.gate.elapsed_s == 0
+    assert local.list() == [] and local.upload_counts()['pending'] == 0
+    EvidenceUploader(local, remote).run_once()
+    assert remote.mock_calls == []
+
+
+def test_returning_person_must_start_a_fresh_off_task_streak(agent_setup):
+    agent, local, sample = agent_setup
+    sample = replace(sample, monotonic_s=time.monotonic() - 16)
+
+    async def exercise():
+        for sequence in range(15):
+            decision = 'no_person' if 5 <= sequence <= 8 else 'off_task'
+            agent.accept(replace(sample, sequence=sequence, monotonic_s=sample.monotonic_s + sequence),
+                         result(decision))
+        assert agent.save_task is None  # New off-task observations span exactly five seconds.
+        agent.accept(replace(sample, sequence=15, monotonic_s=sample.monotonic_s + 15), result())
+        await agent.save_task
+
+    asyncio.run(exercise())
+    assert len(local.list()) == 1
+    assert local.list()[0]['features']['sustained_flag_s'] == 6
+
+
+def test_postgres_rejects_no_person_even_if_event_claims_a_long_off_task_streak(tmp_path, monkeypatch):
+    store = PostgresEventStore()
+    connection = Mock()
+    monkeypatch.setattr(store, '_connection', connection)
+    event = {
+        'mode': 'image', 'alert_source': 'jev', 'review_model': 'jev-test',
+        'local': {'flagged': True, 'source': 'jev'},
+        'jev': {'decision': 'no_person', 'confidence': 0.95, 'model': 'jev-test'},
+        'features': {'sustained_flag_s': 10, 'required_flag_s': 5},
+        'review': {'decision': 'off_task'},
+    }
+    with pytest.raises(ValueError):
+        store.publish_alert(event, tmp_path / 'unused.jpg')
+    connection.assert_not_called()

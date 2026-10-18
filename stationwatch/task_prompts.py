@@ -40,19 +40,24 @@ head turn is uncertain. Ignore unrelated background objects and room decor.
 """
 
 
-def controller_task_rubric(task, binary=False):
+def controller_task_rubric(task, presence_aware=False):
     """Apply this workstation rule only to tasks that name a controller or joystick."""
     if not re.search(r"\b(?:joystick|controller)s?\b", task, re.IGNORECASE):
         return None
-    if not binary:
+    if not presence_aware:
         return CONTROLLER_RUBRIC + AMBIGUITY_RULES
-    return CONTROLLER_RUBRIC + """Return only on_task or off_task. A clearly visible violation of either
+    return """First apply the presence check: if no real person is visible anywhere in the
+frame, return no_person. An empty station or untouched controller with nobody
+present must never be classified off_task. Apply the following task-behavior
+rules only when a person is visible.
+""" + CONTROLLER_RUBRIC + """When a person is present, choose on_task or off_task. A clear violation of either
 requirement supports off_task even when the other requirement is hidden. When
 evidence is incomplete, choose the label best supported by the visible posture
 and report lower confidence; do not invent a violation solely because a hand is
 partly hidden, motion is not visible, or the laptop screen content cannot be read.
-No worker present at the station is off_task. If multiple people are visible,
-assess the person operating or positioned at the assigned controller and machine.
+If multiple people are visible, assess the person operating or positioned at the
+assigned controller and machine. A partial body or visible hand still counts as
+a person present; it is not an empty frame.
 A head clearly turned away is an off_task observation for THIS FRAME; the camera
 agent separately decides whether these observations last long enough for review.
 Ignore unrelated background objects and room decor.

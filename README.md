@@ -152,9 +152,12 @@ uses a detailed workstation rubric:
 - **Off task:** the person clearly faces away from the machine, even while
   holding/operating the controller; leaves the controls visibly untouched; or
   looks at/uses a separate phone instead of observing the machine.
+- **No person:** nobody is visible in the frame. Empty rooms and unattended
+  controllers produce `no_person`, reset the off-task streak, and create no alert
+  or upload. A partly visible person still counts as present.
 
-Jev chooses only **on task** or **off task**, using the best-supported label
-when the image is ambiguous and reporting its confidence separately. A clear
+Jev checks for a person first, then chooses **on task** or **off task** when one
+is present, reporting its confidence separately. A clear
 violation of either requirement supports off task even if the other is hidden.
 
 A still frame does not need to prove joystick movement, button presses, precise
@@ -166,8 +169,10 @@ task description.
 
 The console prints Jev's `model_choice` and `confidence` alongside the decision.
 There is no Jev confidence cutoff or `--jev-threshold` option: every valid
-off-task decision counts toward the streak. API failures, missing frames, and
-on-task decisions break it. The Pi agent requires only `TYPESAFE_API_KEY` and the
+off-task decision counts toward the streak. API failures, missing frames,
+on-task decisions, and `no_person` results break it. No-person frames are treated
+like on-task frames for alerting; a returning person starts a fresh streak.
+The Pi agent requires only `TYPESAFE_API_KEY` and the
 database credentials; no Gemini key or confirmation is required.
 
 #### Send a manual test alert
@@ -211,8 +216,8 @@ updates the saved key; other `.env` entries are preserved. You can also edit the
 
 `worker_video.py` reads the webcam continuously and sends a current frame to Jev
 every second, starting with the first frame. Each printed result includes capture
-time, `on_task` or `off_task`, confidence, and Jev's original choice.
-It uses the same binary API request, image preparation, and response validation
+time, `on_task`, `off_task`, or `no_person`, confidence, and Jev's original choice.
+It uses the same API request, image preparation, and response validation
 as the photo webpage. Frames are sent to TypeSafe and are
 not saved locally.
 
@@ -242,7 +247,7 @@ video script has saved your key.
 
 Open **http://127.0.0.1:8001**. Upload a JPEG, PNG, or WebP image (up to 10 MB and 200 MP),
 describe the worker's assigned task, and select **Classify photo**. The page shows
-**On task** or **Off task**, plus Jev's confidence and the two outcome probabilities.
+**On task**, **Off task**, or **No person**, plus Jev's confidence and outcome probabilities.
 Low-confidence results keep their chosen label. Confidence is reported by the
 model and is not a measured accuracy guarantee. A photo only supports an
 observation of visible behavior at one moment.

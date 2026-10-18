@@ -172,6 +172,7 @@ class PiAgent:
             self.gate.reset()
         self.previous_sequence = sample.sequence
         fresh = time.monotonic() - sample.monotonic_s <= 20
+        # Both on_task and no_person reset the streak and create no upload job.
         flagged = bool(result and result["decision"] == "off_task" and fresh)
         sustained = self.gate.update(flagged, sample.monotonic_s)
         log.info("Jev: %s | model_choice=%s | confidence=%s | off-task streak=%.1fs | capture=%s",
