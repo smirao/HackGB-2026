@@ -12,6 +12,7 @@ from stationwatch.annotation import create_annotation_app
 from stationwatch.config import Settings
 from stationwatch.dataset import (
     clips,
+    evaluate,
     extract,
     import_numbered,
     import_pairs,
@@ -99,6 +100,23 @@ def test_numbered_import_annotation_and_training_group_by_name(numbered_videos, 
     assert report["runtime_confusion_matrix_labels_0_1"] == [[6, 0], [0, 6]]
     assert len(clips(root)) == 8
     assert all(labels_for(root, info) == intervals for info in clips(root))
+    clip_output = tmp_path / "known_people.json"
+    clip_report = train_main([
+        "--annotated", "--dataset", str(root), "--split-by", "clip", "--seed", "42",
+        "--output", str(clip_output),
+    ])
+    assert clip_report["split_by"] == "clip" and clip_report["split_seed"] == 42
+    assert clip_report["training_people"] == clip_report["evaluation_people"] == [
+        "aaron", "hunter", "john_smith", "owen"
+    ]
+    assert len(clip_report["evaluation_clips"]) == 4
+    assert not set(clip_report["training_clips"]) & set(clip_report["evaluation_clips"])
+    artifact = json.loads(clip_output.read_text())
+    assert artifact["training_groups"] == clip_report["training_clips"]
+    checked = evaluate(root, clip_output, tmp_path / "checked.json", groups_filter=clip_report["evaluation_clips"])
+    assert checked["runtime_confusion_matrix_labels_0_1"] == [[12, 0], [0, 12]]
+    with pytest.raises(ValueError, match="training groups"):
+        evaluate(root, clip_output, tmp_path / "invalid.json", groups_filter=clip_report["training_clips"])
 
 
 def test_renamed_numbered_video_preserves_existing_clip_and_labels(numbered_videos):
@@ -117,6 +135,47 @@ def test_renamed_numbered_video_preserves_existing_clip_and_labels(numbered_vide
     assert next(info for info in clips(root) if info["id"] == old_id)["source_name"] == "aaron1.MP4"
     assert import_numbered(root, videos)["reused"] == 8
     assert len(clips(root)) == 8 and path.read_bytes() == saved
+
+
+def test_annotation_discovers_new_numbered_clips_without_restarting(numbered_videos, monkeypatch):
+    root, videos = numbered_videos
+    importer = Mock(wraps=import_numbered)
+    monkeypatch.setattr("stationwatch.annotation.import_numbered", importer)
+    app = create_annotation_app(root, videos)
+    with TestClient(app) as client:
+        response = client.get("/api/clips")
+        assert response.headers["cache-control"] == "no-store"
+        assert len(response.json()) == 8
+        assert importer.call_count == 1
+        body = {"intervals": [{"start_s": 0, "end_s": 1, "label": 0}]}
+        assert client.post("/api/clips/aaron1/labels", json=body).status_code == 200
+        saved = (root / "labels/aaron1.json").read_bytes()
+        new = videos / "silverio1.mp4"
+        new.write_bytes((videos / "aaron1.MP4").read_bytes() + b"new test clip")
+        listed = client.get("/api/clips").json()
+        assert len(listed) == 9
+        info = next(info for info in listed if info["id"] == "silverio1")
+        assert info["person"] == "silverio" and info["intervals"] == 0
+        assert client.get("/api/clips/silverio1/video").status_code == 200
+        assert importer.call_count == 2
+        client.get("/api/clips")
+        assert importer.call_count == 2  # Unchanged files are not rehashed/reimported on every poll.
+        assert (root / "labels/aaron1.json").read_bytes() == saved
+
+
+def test_unfinished_copy_does_not_hide_other_new_clips_and_is_retried(numbered_videos):
+    root, videos = numbered_videos
+    with TestClient(create_annotation_app(root, videos)) as client:
+        unfinished = videos / "unfinished1.mp4"
+        unfinished.write_bytes(b"copy incomplete")
+        (videos / "new_person1.MP4").write_bytes((videos / "hunter1.MP4").read_bytes() + b"new person")
+        listed = client.get("/api/clips").json()
+        assert "new_person1" in {info["id"] for info in listed}
+        assert "unfinished1" not in {info["id"] for info in listed}
+        unfinished.write_bytes((videos / "owen1.MP4").read_bytes() + b"finished copy")
+        listed = client.get("/api/clips").json()
+        assert "unfinished1" in {info["id"] for info in listed}
+        assert len(listed) == 10
 
 
 @pytest.mark.parametrize("problem", ["invalid_name", "duplicate", "changed"])

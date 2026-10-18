@@ -1,8 +1,12 @@
 """Loopback-only annotation UI. All labels and calibration choices come from people."""
 
 import json
+import logging
+import re
+import threading
 from pathlib import Path
 
+import cv2
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -13,15 +17,64 @@ from .dataset import (
     clips,
     dataset_settings,
     frame_times,
+    import_numbered,
     labels_for,
     safe_path,
     validate_intervals,
     write_json,
 )
 
+log = logging.getLogger(__name__)
 
-def create_annotation_app(root):
+
+class ClipDiscovery:
+    """Discover added/renamed videos on list requests, hashing only changed directory entries."""
+
+    def __init__(self, root, videos, session):
+        self.root, self.videos, self.session = root, videos, session
+        self.seen = {}
+        self.lock = threading.Lock()
+
+    def sync(self):
+        with self.lock:
+            pending = {}
+            try:
+                if not self.videos.is_dir():
+                    return
+                for path in self.videos.iterdir():
+                    if path.is_file() and path.suffix.lower() == ".mp4" and re.fullmatch(r".+[0-9]+", path.stem):
+                        stat = path.stat()
+                        signature = stat.st_size, stat.st_mtime_ns
+                        if self.seen.get(path) != signature:
+                            pending[path] = signature
+            except OSError as exc:
+                log.warning("Clip discovery unavailable: %s", exc)
+                return
+            if not pending:
+                return
+            try:
+                import_numbered(self.root, self.videos, self.session, sources=pending)
+            except (ValueError, OSError, RuntimeError, cv2.error):
+                # A file still being copied or an invalid duplicate must not hide other new clips.
+                for path in pending:
+                    try:
+                        import_numbered(self.root, self.videos, self.session, sources=[path])
+                    except (ValueError, OSError, RuntimeError, cv2.error) as exc:
+                        log.warning("Cannot discover %s yet (will retry when the file changes): %s", path.name, exc)
+            self.seen.update(pending)
+
+
+def create_annotation_app(root, videos=None, session="s01"):
     app = FastAPI(title="StationWatch training labels", docs_url=None, redoc_url=None, openapi_url=None)
+    discovery = ClipDiscovery(root, Path(videos), session) if videos is not None else None
+    if discovery is not None:
+        discovery.sync()
+
+    @app.middleware("http")
+    async def no_cache(request, call_next):
+        response = await call_next(request)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     def same_origin(request: Request):
         origin = request.headers.get("origin")
@@ -40,6 +93,8 @@ def create_annotation_app(root):
 
     @app.get("/api/clips")
     def list_clips():
+        if discovery is not None:
+            discovery.sync()
         return [{**info, "intervals": len(labels_for(root, info))} for info in clips(root)]
 
     @app.get("/api/clips/{clip_id}/video")

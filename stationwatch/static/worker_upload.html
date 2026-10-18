@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>StationWatch · Photo review</title>
+  <style>
+    :root { color-scheme: dark; --bg:#101110; --panel:#191b19; --line:#353a35; --muted:#a3ada4; --text:#eef2ed; --green:#c6f490; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:15px/1.6 system-ui,-apple-system,sans-serif; }
+    header { border-bottom:1px solid var(--line); padding:20px max(24px,calc((100vw - 1160px)/2)); display:flex; align-items:center; justify-content:space-between; gap:16px; }
+    .brand { font-weight:700; font-size:19px; letter-spacing:-.6px; }
+    .brand::before { content:""; display:inline-block; width:10px; height:10px; background:var(--green); border-radius:50%; margin-right:10px; }
+    .tag,.eyebrow { font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); }
+    main { max-width:1208px; margin:auto; padding:48px 24px; }
+    h1 { margin:10px 0; font-size:clamp(30px,5vw,46px); line-height:1.15; font-weight:600; letter-spacing:-1.8px; }
+    h2 { font-size:17px; margin:0; font-weight:600; }
+    p { color:var(--muted); margin:0; }
+    .intro { max-width:620px; margin-bottom:32px; }
+    .layout { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(300px,1fr); gap:24px; align-items:start; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+    .card-head { padding:20px 24px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; }
+    .step { color:var(--muted); font-size:12px; }
+    .body { padding:24px; }
+    .drop { position:relative; min-height:270px; border:1px dashed #5b665c; border-radius:9px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; cursor:pointer; background:#141714; padding:24px; }
+    .drop.over { border-color:var(--green); background:#242e21; }
+    .drop strong { margin:12px 0 3px; font-weight:500; }
+    .drop small { color:var(--muted); }
+    .upload-icon { font-size:28px; color:var(--green); }
+    .drop input { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+    .drop:focus-within { outline:2px solid var(--green); outline-offset:3px; }
+    #preview { width:100%; max-height:360px; object-fit:contain; background:#111; border-radius:8px; }
+    .photo-meta { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:12px 0 24px; font-size:12px; color:var(--muted); }
+    #filename { overflow-wrap:anywhere; }
+    button,textarea { font:inherit; }
+    button { cursor:pointer; }
+    button:disabled { opacity:.45; cursor:default; }
+    .text-button { border:0; background:none; color:var(--green); padding:6px 0; white-space:nowrap; }
+    label.task-label { display:block; font-size:13px; font-weight:600; margin-bottom:8px; }
+    textarea { width:100%; min-height:106px; resize:vertical; background:#111411; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:12px; }
+    textarea:focus-visible,button:focus-visible { outline:2px solid var(--green); outline-offset:3px; }
+    .hint { font-size:12px; margin:6px 0 20px; }
+    .primary { width:100%; padding:13px; border:0; border-radius:8px; background:var(--green); color:#162010; font-weight:650; }
+    .privacy { margin:14px 0 0; font-size:11px; text-align:center; }
+    .result-body { min-height:370px; }
+    .empty { text-align:center; padding:58px 10px; }
+    .empty-icon { font-size:30px; color:#717e70; margin-bottom:14px; }
+    .empty p { font-size:13px; max-width:260px; margin:8px auto 0; }
+    .status-label { display:inline-block; padding:6px 12px; border-radius:6px; background:#2c3528; color:var(--green); font-weight:650; font-size:14px; }
+    .status-label.off_task { background:#3b2726; color:#ffb2a9; }
+    .status-label.uncertain { background:#393323; color:#f2ce81; }
+    #result-note { margin:16px 0 24px; font-size:13px; }
+    .metric { display:flex; justify-content:space-between; align-items:center; margin:22px 0; font-size:12px; color:var(--muted); }
+    .metric strong { color:var(--text); font-size:24px; font-weight:500; }
+    .probability { margin:14px 0; }
+    .probability div { display:flex; justify-content:space-between; font-size:12px; margin-bottom:5px; color:var(--muted); }
+    progress { display:block; width:100%; height:7px; border:0; border-radius:4px; overflow:hidden; background:#303730; accent-color:var(--green); }
+    progress::-webkit-progress-bar { background:#303730; }
+    progress::-webkit-progress-value { background:var(--green); }
+    progress::-moz-progress-bar { background:var(--green); }
+    #model-name { margin-top:24px; padding-top:16px; border-top:1px solid var(--line); font-size:11px; overflow-wrap:anywhere; }
+    .notice { font-size:12px; color:#f2ce81; border:1px solid #63552e; border-radius:8px; padding:12px 16px; margin-bottom:24px; }
+    #error { color:#ffb2a9; font-size:13px; margin-top:14px; }
+    footer { color:var(--muted); font-size:12px; margin:24px 0; max-width:760px; }
+    [hidden] { display:none !important; }
+    @media(max-width:760px) { .layout { grid-template-columns:1fr; } main { padding-top:30px; } .tag { font-size:9px; } .body,.card-head { padding:20px; } }
+  </style>
+</head>
+<body>
+  <header><div class="brand">StationWatch</div><span class="tag">Photo review · Powered by Jev</span></header>
+  <main>
+    <div class="intro"><div class="eyebrow">Workstation observation</div><h1>Is the worker on task?</h1><p>Upload a workstation photo and describe the assigned task. Jev reviews the visible activity in the picture.</p></div>
+    <div id="setup-notice" class="notice" role="status" hidden></div>
+    <div class="layout">
+      <section class="card" aria-labelledby="upload-title">
+        <div class="card-head"><h2 id="upload-title">Photo &amp; task</h2><span class="step">01 / Input</span></div>
+        <form id="form" class="body">
+          <label class="drop" id="drop">
+            <span class="upload-icon" aria-hidden="true">↑</span><strong>Drop a workstation photo here</strong><small>or click to browse · JPEG, PNG, WebP · up to 10 MB</small>
+            <input id="file" type="file" accept="image/jpeg,image/png,image/webp" aria-label="Upload workstation photo">
+          </label>
+          <div id="photo" hidden><img id="preview" alt="Selected workstation photo"><div class="photo-meta"><span id="filename"></span><button type="button" id="replace" class="text-button">Change photo</button></div></div>
+          <div id="task-field" style="margin-top:22px"><label class="task-label" for="task">What should the worker be doing?</label>
+          <textarea id="task" maxlength="2000" required placeholder="For example: assembling parts at the workbench and inspecting each finished component."></textarea></div>
+          <p class="hint">Include normal actions such as reaching for tools or checking a monitor.</p>
+          <button id="submit" class="primary" type="submit" disabled>Classify photo →</button>
+          <p class="privacy">The photo is sent to TypeSafe for review. This app does not save uploads.</p>
+          <p id="error" role="alert" hidden></p>
+        </form>
+      </section>
+      <section class="card" aria-labelledby="result-title">
+        <div class="card-head"><h2 id="result-title">Classification</h2><span class="step">02 / Result</span></div>
+        <div class="body result-body" aria-live="polite" aria-atomic="true">
+          <div id="empty" class="empty"><div class="empty-icon" aria-hidden="true">◎</div><h2 id="empty-title">Ready when you are</h2><p id="empty-note">Your classification and probability breakdown will appear here.</p></div>
+          <div id="result" hidden>
+            <span id="decision" class="status-label"></span><p id="result-note"></p>
+            <div class="metric"><span>Jev confidence</span><strong id="confidence"></strong></div>
+            <div class="eyebrow">Outcome probabilities</div>
+            <div class="probability"><div><span>On task</span><span id="on_task-value"></span></div><progress id="on_task-bar" max="1" value="0" aria-label="On task probability"></progress></div>
+            <div class="probability"><div><span>Off task</span><span id="off_task-value"></span></div><progress id="off_task-bar" max="1" value="0" aria-label="Off task probability"></progress></div>
+            <div class="probability"><div><span>Uncertain</span><span id="uncertain-value"></span></div><progress id="uncertain-bar" max="1" value="0" aria-label="Uncertain probability"></progress></div>
+            <p id="model-name"></p>
+          </div>
+        </div>
+      </section>
+    </div>
+    <footer>A photo shows visible behavior at one moment. Ambiguous scenes and results below 60% Jev confidence are marked uncertain for human review. Jev image support is experimental.</footer>
+  </main>
+  <script>
+    const $ = id => document.getElementById(id);
+    const names = {on_task:'On task', off_task:'Off task', uncertain:'Uncertain'};
+    let selected = null, previewUrl = null, busy = false, configured = false;
+    const percent = value => `${Math.round(value * 100)}%`;
+    function refresh() { $('submit').disabled = busy || !configured || !selected || !$('task').value.trim(); }
+    function error(message) { $('error').textContent = message; $('error').hidden = !message; }
+    function clearResult() {
+      $('result').hidden = true; $('empty').hidden = false;
+      $('empty-title').textContent = 'Ready when you are';
+      $('empty-note').textContent = 'Your classification and probability breakdown will appear here.';
+    }
+    function select(file) {
+      if (busy || !file) return;
+      error('');
+      if (!['image/jpeg','image/png','image/webp'].includes(file.type)) { error('Choose a JPEG, PNG, or WebP image.'); return; }
+      if (file.size > 10 * 1024 * 1024) { error('Choose an image smaller than 10 MB.'); return; }
+      selected = file;
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      previewUrl = URL.createObjectURL(file);
+      $('preview').src = previewUrl;
+      $('filename').textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB`;
+      $('photo').hidden = false; $('drop').hidden = true;
+      clearResult(); refresh();
+    }
+    $('file').addEventListener('change', event => select(event.target.files[0]));
+    $('replace').addEventListener('click', () => { $('file').value = ''; $('file').click(); });
+    $('preview').addEventListener('error', () => {
+      selected = null; $('photo').hidden = true; $('drop').hidden = false;
+      error('This image could not be opened. Choose another photo.'); refresh();
+    });
+    ['dragover','dragenter'].forEach(name => $('drop').addEventListener(name, event => {
+      event.preventDefault(); $('drop').classList.add('over');
+    }));
+    ['dragleave','drop'].forEach(name => $('drop').addEventListener(name, event => {
+      event.preventDefault(); $('drop').classList.remove('over');
+    }));
+    $('drop').addEventListener('drop', event => select(event.dataTransfer.files[0]));
+    $('task').addEventListener('input', () => { clearResult(); refresh(); });
+    $('form').addEventListener('submit', async event => {
+      event.preventDefault();
+      if (busy || !configured || !selected || !$('task').value.trim()) return;
+      busy = true; error(''); clearResult(); refresh();
+      $('replace').disabled = true; $('file').disabled = true; $('task').disabled = true;
+      $('submit').textContent = 'Reviewing with Jev…';
+      $('empty-title').textContent = 'Reviewing your photo';
+      $('empty-note').textContent = 'Jev is comparing the visible activity with your task description.';
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 75000);
+      try {
+        const response = await fetch(`/api/classify?task=${encodeURIComponent($('task').value.trim())}`, {
+          method:'POST', headers:{'Content-Type':selected.type}, body:selected, signal:controller.signal
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Please check the photo and task description.');
+        $('decision').textContent = names[data.decision];
+        $('decision').className = `status-label ${data.decision}`;
+        $('result-note').textContent = data.low_confidence
+          ? `Jev selected “${names[data.model_choice]},” but confidence is below 60%. Review this photo manually.`
+          : {on_task:'The visible activity was classified as related to the assigned task.', off_task:'The visible activity was classified as unrelated to the assigned task.', uncertain:'The photo does not provide enough clear evidence for a task classification.'}[data.decision];
+        $('confidence').textContent = percent(data.confidence);
+        for (const label of Object.keys(names)) {
+          $(`${label}-value`).textContent = percent(data.probabilities[label]);
+          $(`${label}-bar`).value = data.probabilities[label];
+        }
+        $('model-name').textContent = `Model: ${data.model}`;
+        $('empty').hidden = true; $('result').hidden = false;
+      } catch (err) {
+        clearResult(); error(err.name === 'AbortError' ? 'The request timed out. Please try again.' : err.message || 'Could not reach the server. Please retry.');
+      } finally {
+        clearTimeout(timeout); busy = false;
+        $('replace').disabled = false; $('file').disabled = false; $('task').disabled = false;
+        $('submit').textContent = 'Classify photo →'; refresh();
+      }
+    });
+    (async () => {
+      try {
+        const response = await fetch('/api/setup');
+        if (!response.ok) throw new Error();
+        const setup = await response.json(); configured = setup.configured;
+        if (!configured) {
+          $('setup-notice').textContent = 'To enable Jev, set TYPESAFE_API_KEY in your terminal and restart worker_webpage.py. You can select a photo and describe the task now.';
+          $('setup-notice').hidden = false;
+        }
+      } catch {
+        $('setup-notice').textContent = 'Cannot reach the local server. Run worker_webpage.py and open the printed URL.';
+        $('setup-notice').hidden = false;
+      }
+      refresh();
+    })();
+  </script>
+</body>
+</html>

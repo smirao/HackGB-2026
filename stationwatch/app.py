@@ -56,6 +56,11 @@ def create_app(pipeline, store, dashboard_token=None, uploader=None):
         if origin and origin != str(request.base_url).rstrip("/"):
             raise HTTPException(403, "Cross-origin write rejected")
 
+    @app.get("/healthz")
+    def healthz():
+        # Liveness only: a database outage must not prevent the process from listening.
+        return {"ok": True}
+
     class Login(BaseModel):
         token: str
 

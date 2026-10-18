@@ -198,6 +198,8 @@
           <option value="">Loading recordings…</option>
         </select></label
       >
+      <button id="refresh-clips">Refresh recordings</button>
+      <p id="discovery-status" class="small">New name#.mp4 recordings are detected automatically.</p>
       <div id="status" class="status" role="status"></div>
       <div class="grid">
         <section class="card">
@@ -292,6 +294,7 @@
         mode = null,
         dirty = false;
       let setup = null;
+      let refreshingClips = false;
       const esc = (value) =>
         String(value).replace(
           /[&<>"']/g,
@@ -318,6 +321,37 @@
               : "Invalid input. Check the values.",
           );
         return value;
+      }
+      async function refreshRecordings() {
+        if (refreshingClips || !setup) return;
+        refreshingClips = true;
+        try {
+          const updated = await api("/api/clips");
+          updated.sort((a, b) =>
+            (a.source_name || a.id).localeCompare(b.source_name || b.id, undefined, { numeric: true }),
+          );
+          recordings = updated;
+          const options = recordings.length
+            ? recordings.map((c) =>
+                `<option value="${esc(c.id)}">${esc(c.source_name || c.id)} · ${esc(c.person)} / ${esc(c.session)} · ${c.duration_s.toFixed(1)}s</option>`,
+              ).join("")
+            : '<option value="">No clips yet. Add name#.mp4 files to the clips folder.</option>';
+          if ($("clips").innerHTML !== options) $("clips").innerHTML = options;
+          // Polling updates the selector only: preserve playback and unsaved interval edits.
+          if (selected) $("clips").value = selected;
+          else if (recordings.length) {
+            $("clips").value = recordings[0].id;
+            await loadClip(recordings[0].id);
+          }
+          $("discovery-status").textContent =
+            `${recordings.length} recordings · Checking for new name#.mp4 files every 5 seconds.`;
+          $("discovery-status").classList.remove("error");
+        } catch (e) {
+          $("discovery-status").textContent = "Could not refresh recordings: " + e.message;
+          $("discovery-status").classList.add("error");
+        } finally {
+          refreshingClips = false;
+        }
       }
       function draw() {
         if (setup?.analysis_backend === "image") {
@@ -518,6 +552,7 @@
         }
       };
       $("clips").onchange = () => loadClip($("clips").value);
+      $("refresh-clips").onclick = refreshRecordings;
       window.addEventListener("beforeunload", (event) => {
         if (dirty) {
           event.preventDefault();
@@ -526,14 +561,10 @@
       });
       (async () => {
         try {
-          [recordings, geometry, setup] = await Promise.all([
-            api("/api/clips"),
+          [geometry, setup] = await Promise.all([
             api("/api/calibration"),
             api("/api/setup"),
           ]);
-          recordings.sort((a, b) =>
-            (a.source_name || a.id).localeCompare(b.source_name || b.id, undefined, { numeric: true }),
-          );
           if (setup.analysis_backend === "image") {
             $("calibration-controls").hidden = true;
             $("calibration-controls").style.display = "none";
@@ -541,21 +572,12 @@
               "Image mode · The outlined crop is used for training and inference. No body tracker or machine calibration is required. Keep this camera position fixed. Task: " +
               setup.task_description;
           }
-          $("clips").innerHTML = recordings.length
-            ? recordings
-                .map(
-                  (c) =>
-                    `<option value="${esc(c.id)}">${esc(c.source_name || c.id)} · ${esc(c.person)} / ${esc(c.session)} · ${c.duration_s.toFixed(1)}s</option>`,
-                )
-                .join("")
-            : '<option value="">No clips. Use record or import-video first.</option>';
-          if (recordings.length) await loadClip(recordings[0].id);
-          else
-            message("Record a clip in the terminal, then refresh this page.");
+          await refreshRecordings();
         } catch (e) {
           message(e.message, true);
         }
       })();
+      setInterval(refreshRecordings, 5000);
     </script>
   </body>
 </html>

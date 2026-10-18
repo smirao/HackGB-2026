@@ -152,6 +152,28 @@ def split_groups(y, groups, holdout):
     raise ValueError("Both training and held-out groups need examples of each label")
 
 
+def split_clips(y, clip_ids, people, holdout=None, seed=42):
+    """Hold out one whole clip per known person, without choosing by model performance."""
+    if len(y) < 20:
+        raise ValueError("Record at least 20 labeled frames before training")
+    by_person = {person: sorted(set(clip_ids[people == person])) for person in sorted(set(people))}
+    insufficient = [str(person) for person, ids in by_person.items() if len(ids) < 2]
+    if insufficient:
+        raise ValueError(f"Clip splitting needs at least two labeled clips per person: {insufficient}")
+    if holdout and set(holdout) - set(clip_ids):
+        raise ValueError("With --split-by clip, --holdout must contain existing clip IDs, not person names")
+    rng = np.random.default_rng(seed)
+    for _ in range(1 if holdout else 30):
+        selected = holdout or [rng.choice(ids) for ids in by_person.values()]
+        mask = np.isin(clip_ids, selected)
+        train, test = np.flatnonzero(~mask), np.flatnonzero(mask)
+        if set(people[train]) != set(by_person) or set(people[test]) != set(by_person):
+            raise ValueError("Every person must have whole clips in both training and evaluation")
+        if set(y[train]) == set(y[test]) == {0, 1}:
+            return train, test
+    raise ValueError("Cannot hold out whole clips from each person with both labels in training and evaluation")
+
+
 def score_images(artifact, x):
     logits = np.asarray(x) @ np.asarray(artifact["weights"]) + artifact["bias"]
     return 1 / (1 + np.exp(-np.clip(logits, -700, 700)))
@@ -211,15 +233,30 @@ def save_predictions(path, data, indices, scores, eligible, threshold):
             )
 
 
-def train_images(root, output, threshold=0.8, holdout=None):
+def train_images(root, output, threshold=0.8, holdout=None, split_by="person", seed=42):
     from sklearn.linear_model import LogisticRegression
     from sklearn.preprocessing import StandardScaler
 
     if output.suffix != ".json" or not 0 <= threshold <= 1:
         raise ValueError("Use a .json output and a threshold in [0,1]")
+    if split_by not in {"person", "clip"}:
+        raise ValueError("Choose --split-by person or clip")
     settings, extraction, data = load_images(root)
+    metadata = {info["id"]: info for info in clips(root)}
+    people = np.asarray([metadata[clip_id]["person"] for clip_id in data["clip_id"]])
+    if split_by == "clip":
+        data = {**data, "group": data["clip_id"]}
     x, y, groups = data["embeddings"], data["label"], data["group"]
-    train, test = split_groups(y, groups, holdout)
+    if split_by == "clip":
+        train, test = split_clips(y, groups, people, holdout, seed)
+        hashes = [
+            {file_hash(safe_path(root, metadata[clip_id]["video"])) for clip_id in set(groups[indices])}
+            for indices in [train, test]
+        ]
+        if hashes[0] & hashes[1]:
+            raise ValueError("Identical video content in training and held-out clips would leak into evaluation")
+    else:
+        train, test = split_groups(y, groups, holdout)
     scaler = StandardScaler().fit(x[train])
     classifier = LogisticRegression(class_weight="balanced", max_iter=2000, random_state=42)
     classifier.fit(scaler.transform(x[train]), y[train])
@@ -235,6 +272,10 @@ def train_images(root, output, threshold=0.8, holdout=None):
         "evaluation_groups": sorted(set(groups[test])),
         "training_clips": sorted(set(data["clip_id"][train])),
         "evaluation_clips": sorted(set(data["clip_id"][test])),
+        "training_people": sorted(set(people[train])),
+        "evaluation_people": sorted(set(people[test])),
+        "split_by": "clip" if split_by == "clip" else extraction["group_by"],
+        "split_seed": seed if split_by == "clip" else 42,
         "evaluated_threshold": threshold,
         "input_signature": extraction["input_signature"],
     }
@@ -247,6 +288,11 @@ def train_images(root, output, threshold=0.8, holdout=None):
         "evaluation_groups": artifact["evaluation_groups"],
         "training_clips": artifact["training_clips"],
         "evaluation_clips": artifact["evaluation_clips"],
+        "training_people": artifact["training_people"],
+        "evaluation_people": artifact["evaluation_people"],
+        "split_by": artifact["split_by"],
+        "split_seed": artifact["split_seed"],
+        "evaluation_scope": "New clips of known people" if split_by == "clip" else "Held-out people/session groups",
         "training_samples": len(train),
         "evaluation_samples": len(test),
         "local_candidate_spans": spans,
@@ -265,6 +311,7 @@ def train_images(root, output, threshold=0.8, holdout=None):
     save_predictions(output.with_suffix(".predictions.csv"), data, test, scores, eligible, threshold)
     print_metrics(report)
     print(f"Training: {artifact['training_groups']}; held out: {artifact['evaluation_groups']}")
+    print(f"Evaluation scope: {report['evaluation_scope']}")
     print(f"Classifier: {output}\nPi config: {output.with_suffix('.config.json')}")
     return report
 
@@ -278,6 +325,8 @@ def evaluate_images(root, model_path, output, threshold=None, groups_filter=None
         raise ValueError("Evaluation image encoder/crop does not match training")
     if not artifact.get("training_groups"):
         raise ValueError("Missing training-group metadata")
+    if artifact.get("split_by") == "clip":
+        data = {**data, "group": data["clip_id"]}
     if groups_filter and set(groups_filter) - set(data["group"]):
         raise ValueError("Unknown evaluation groups")
     selected = np.isin(data["group"], groups_filter) if groups_filter else np.ones(len(data["label"]), bool)

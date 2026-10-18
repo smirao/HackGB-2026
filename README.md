@@ -1,5 +1,30 @@
 # StationWatch
 
+### Upload a photo and classify it with Jev
+
+Run the standalone local webpage (no camera, trained local model, or MongoDB required):
+
+```bash
+# From this project directory, with the project dependencies installed:
+export TYPESAFE_API_KEY='your TypeSafe API key'
+.venv/bin/python worker_webpage.py
+```
+
+Open **http://127.0.0.1:8001**. Upload a JPEG, PNG, or WebP image (up to 10 MB),
+describe the worker's assigned task, and select **Classify photo**. The page shows
+**On task**, **Off task**, or **Uncertain**, plus Jev's confidence and probabilities.
+Results below 0.6 confidence are displayed as uncertain; this is a prototype
+threshold, not a measured accuracy guarantee. A photo only supports an observation
+of visible behavior at one moment.
+
+Get a key from the [TypeSafe console](https://console.typesafe.ai/). The Python
+server keeps it out of the browser and sends the photo to the
+[Jev image API](https://docs.typesafe.ai/images); uploaded photos are not saved by
+this app. Jev image support is experimental. Photos are converted to upright
+baseline JPEGs, resized and padded to the API's image limits. Use
+`--port 8002` to change the local port or `--model jev-latest` to choose a model
+(also configurable through `TYPESAFE_MODEL`). Stop the server with Ctrl+C.
+
 Raspberry Pi workstation observation prototype: webcam → a frame every **0.5 seconds** → local image classifier → **more than five seconds of consecutive confident flags** → Gemini review → confirmed alert/evidence in MongoDB → central alert inbox. Normal observations stay on the Pi. Uncertain reviews and API failures do not become confirmed alerts.
 
 The project includes USB/Picamera2/custom camera adapters, a synthetic demo, labeled-video training, pretrained MobileNet image features, an optional MoveNet/MediaPipe pose path, bounded inference workers, video recording, a durable upload queue, MongoDB/GridFS storage, and a black/gray alert dashboard. **No real labeled worker data or trained task-behavior classifier is bundled.**
@@ -17,12 +42,20 @@ Use **[training_workflow.py](training_workflow.py)** and follow **[TRAINING_GUID
 For numbered clips already in `clips/`, use the initialized dataset:
 
 ```sh
-python training_workflow.py annotate --videos clips
+python training_workflow.py annotate
 # Save interval labels in http://127.0.0.1:8002, then stop the annotator.
 python train_model.py --annotated --holdout owen
 ```
 
-The number identifies a take, not a behavior. New videos start unlabeled. Reimporting renamed copies preserves existing annotations by matching video content.
+The annotator automatically discovers `name#.mp4` files in `clips/`, including files added while it is open. The selector refreshes every five seconds without changing the current video or unsaved intervals; **Refresh recordings** checks immediately. Use `annotate --videos PATH` to watch another folder. The number identifies a take, not a behavior. New videos start unlabeled. Renamed copies preserve existing annotations by matching video content.
+
+To test new clips from the same people, hold out one whole clip per person:
+
+```sh
+python train_model.py --annotated --split-by clip --seed 42 --output models/attention_image_known_people.json
+```
+
+This measures performance on known people in new recordings. The default person split measures workers excluded from training. Both options keep whole clips together, and clip selection is reproducible.
 
 Image training starts here after installation and camera configuration:
 
@@ -126,6 +159,10 @@ The saved model excludes held-out groups. Use the same pose backend and camera c
 
 ## Pi → MongoDB → central alert hub
 
+For the camera-free PostgreSQL/Timescale hub on DigitalOcean App Platform, see
+[the deployment guide](deploy/DIGITALOCEAN.md). Its root Procfile runs
+`python -m stationwatch.hub`; the MongoDB CLI workflow below is separate.
+
 The Pi runs the webcam, local ML, and Gemini. **Only confirmed alerts, their snapshots, and their recorded segments are uploaded.** Normal frames, local-only flags, uncertain reviews, and per-frame statistics stay on the Pi. The central hub reads MongoDB and runs no camera, pose detector, or Gemini calls.
 
 On the Pi, copy the image encoder, trained classifier, and exported config as described in the training guide. Install inference/upload dependencies and set both credentials locally:
@@ -176,7 +213,7 @@ Recording uses a constant encoded FPS; under capture lag, playback duration can 
 
 ## Manager access
 
-The service defaults to loopback. To access it from another computer:
+The `serve` and MongoDB `hub` CLI commands default to loopback. To access them from another computer:
 
 ```sh
 export DASHBOARD_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
@@ -184,7 +221,7 @@ export DASHBOARD_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe
 stationwatch --config config.json serve --baseline --host 0.0.0.0
 ```
 
-Binding to a non-loopback address requires an access token of at least 24 characters. Status, events, media, live stream, and review actions share that token; the dashboard stores it in an HttpOnly SameSite cookie, not in URLs or browser storage. API clients may instead send `Authorization: Bearer <token>`. Put remote access behind HTTPS and a trusted network/reverse proxy. This prototype has one shared manager credential; it has no user roles, per-person audit log, or internet-facing login rate limiting.
+Binding those CLI commands to a non-loopback address requires an access token of at least 24 characters. The App Platform entrypoint always binds to `0.0.0.0`; set `DASHBOARD_TOKEN` explicitly there because authentication is skipped when it is unset. Status, events, media, live stream, and review actions share that token; the dashboard stores it in an HttpOnly SameSite cookie, not in URLs or browser storage. API clients may instead send `Authorization: Bearer <token>`. Put remote access behind HTTPS and a trusted network/reverse proxy. This prototype has one shared manager credential; it has no user roles, per-person audit log, or internet-facing login rate limiting.
 
 Run **one agent per Pi/camera** and one central `hub` instance connected to the shared MongoDB database. `serve` is the combined local inspection mode and must use one process; do not enable Uvicorn multi-worker mode or reload on a camera process. Use Ctrl-C for graceful shutdown and video finalization.
 

@@ -33,13 +33,18 @@ def main(argv=None):
     image.add_argument("--session", default="s01")
     image.add_argument("--trim-start-s", type=float, default=0, help="Opening seconds to leave unlabeled")
     image.add_argument("--trim-end-s", type=float, default=0, help="Closing seconds to leave unlabeled")
-    image.add_argument("--holdout", nargs="+", help="People excluded from fitting; default: reproducible split")
+    image.add_argument("--holdout", nargs="+", help="People (or clip IDs with --split-by clip) excluded from fitting")
+    image.add_argument("--split-by", choices=["person", "clip"], default="person",
+                       help="Hold out people, or random whole clips from every person")
+    image.add_argument("--seed", type=int, default=42, help="Random seed for whole-clip selection per person")
     parser.add_argument("--algorithm", choices=["random-forest", "logistic"], help="Legacy CSV training only")
     args = parser.parse_args(argv)
     try:
         if not 0 <= args.threshold <= 1:
             raise ValueError("Threshold must be in [0,1]")
         if args.csv is not None:
+            if args.split_by != "person":
+                raise ValueError("--split-by clip is for image training, not legacy CSV training")
             from stationwatch.training import train
 
             return train(
@@ -65,18 +70,18 @@ def main(argv=None):
         if args.videos is not None:
             import_training_videos(args.dataset, args.videos, args.session, args.trim_start_s, args.trim_end_s)
         people = {info["person"] for info in clips(args.dataset)}
-        if len(people) < 3:
+        if args.split_by == "person" and len(people) < 3:
             raise ValueError("Provide annotated footage from at least three people, with both labels in each split")
-        if args.holdout and (set(args.holdout) - people or not people - set(args.holdout)):
+        if args.split_by == "person" and args.holdout and (set(args.holdout) - people or not people - set(args.holdout)):
             raise ValueError("--holdout must name existing people and leave people available for training")
         if args.download_model:
             download_model(settings)
         elif not settings.image_model_path.is_file():
             raise ValueError("MobileNet encoder is missing; rerun with --download-model")
         # Re-extract saved intervals, including both labels within a clip and unlabeled gaps.
-        # Keep every clip/session from a person in the same split.
+        # Splitting by clip still keeps every frame of a clip in the same split.
         extract(args.dataset, group_by="person")
-        return train_dataset(args.dataset, output, args.threshold, args.holdout)
+        return train_dataset(args.dataset, output, args.threshold, args.holdout, args.split_by, args.seed)
     except (ValueError, FileNotFoundError, OSError, RuntimeError, cv2.error) as exc:
         parser.exit(1, f"Error: {exc}\n")
 

@@ -260,7 +260,7 @@ def import_video(root, source, clip_id, person, session):
     return save_clip(root, clip_id, person, session, destination)
 
 
-def import_numbered(root, videos, session="s01"):
+def import_numbered(root, videos, session="s01", sources=None):
     """Import name1.mp4/name2.mp4 without assigning behavior labels.
 
     Match renamed footage by content to retain existing clip IDs and annotations.
@@ -269,7 +269,9 @@ def import_numbered(root, videos, session="s01"):
     identifier(session)
     if not videos.is_dir():
         raise ValueError("--videos must be a directory containing name1.mp4, name2.mp4, etc.")
-    sources = sorted(path for path in videos.iterdir() if path.is_file() and path.suffix.lower() == ".mp4")
+    sources = sorted(sources) if sources is not None else sorted(
+        path for path in videos.iterdir() if path.is_file() and path.suffix.lower() == ".mp4"
+    )
     if not sources:
         raise ValueError("No MP4 videos found in --videos")
     existing = clips(root)
@@ -636,11 +638,13 @@ def print_metrics(report):
     print("These are labeled-frame metrics, not event-level accuracy or proof of attention.")
 
 
-def train_dataset(root, output, threshold, holdout=None):
+def train_dataset(root, output, threshold, holdout=None, split_by="person", seed=42):
     if dataset_settings(root).analysis_backend == "image":
         from .image_training import train_images
 
-        return train_images(root, output, threshold, holdout)
+        return train_images(root, output, threshold, holdout, split_by, seed)
+    if split_by != "person":
+        raise ValueError("Clip splitting is supported by the image training pipeline")
     from .training import train
 
     extraction = checked_extraction(root)
@@ -770,7 +774,8 @@ def main():
     commands.add_parser("list", help="List clips and labeled intervals")
     annotate = commands.add_parser("annotate", help="Open a local video annotation/calibration server")
     annotate.add_argument("--port", type=int, default=8002)
-    annotate.add_argument("--videos", type=Path, help="Import/reuse numbered clips before opening the annotator")
+    annotate.add_argument("--videos", type=Path, default=Path("clips"),
+                          help="Continuously discover numbered clips in this folder (default: clips)")
     annotate.add_argument("--session", default="s01")
     extraction = commands.add_parser("extract", help="Extract visual features from human-labeled video")
     extraction.add_argument("--group-by", choices=["person", "session"], default="person")
@@ -778,11 +783,13 @@ def main():
     fit.add_argument("--output", type=Path)
     fit.add_argument("--threshold", type=float, default=0.8)
     fit.add_argument("--holdout", nargs="+", help="Explicit groups to exclude from fitting")
+    fit.add_argument("--split-by", choices=["person", "clip"], default="person")
+    fit.add_argument("--seed", type=int, default=42, help="Random seed for whole-clip selection per person")
     check = commands.add_parser("evaluate", help="Evaluate additional held-out recordings without fitting")
     check.add_argument("--model", type=Path)
     check.add_argument("--output", type=Path)
     check.add_argument("--threshold", type=float)
-    check.add_argument("--groups", nargs="+", help="Evaluate only these held-out groups, e.g. a new person")
+    check.add_argument("--groups", nargs="+", help="Held-out groups; use clip IDs for a clip-split model")
     args = parser.parse_args()
     root = args.dataset
     try:
@@ -817,15 +824,15 @@ def main():
             from .annotation import create_annotation_app
 
             dataset_settings(root)
-            if args.videos is not None:
-                import_numbered(root, args.videos, args.session)
             print(f"Annotation tool: http://127.0.0.1:{args.port}. Stop with Ctrl-C before extracting.")
-            uvicorn.run(create_annotation_app(root), host="127.0.0.1", port=args.port, access_log=False)
+            uvicorn.run(create_annotation_app(root, args.videos, args.session),
+                        host="127.0.0.1", port=args.port, access_log=False)
         elif args.command == "extract":
             extract(root, args.group_by)
         elif args.command == "train":
             train_dataset(
-                root, args.output or dataset_settings(root).classifier_path, args.threshold, args.holdout
+                root, args.output or dataset_settings(root).classifier_path, args.threshold, args.holdout,
+                args.split_by, args.seed,
             )
         elif args.command == "evaluate":
             evaluate(

@@ -117,10 +117,12 @@ The prefix identifies the person; trailing digits identify the clip. `aaron1`, `
 With the existing initialized dataset, start annotation:
 
 ```sh
-python training_workflow.py annotate --videos clips
+python training_workflow.py annotate
 ```
 
-This imports new numbered videos with no labels, reuses videos already in the dataset, and displays the current source filenames in numerical order. If you renamed an existing video, its content hash links it to the existing clip and preserves every saved annotation. Internal clip IDs may retain earlier names so saved labels and references continue to work. Existing whole-clip labels are retained too; remove them in the annotator when replacing them with mixed-behavior intervals.
+This automatically discovers numbered MP4s in `clips/`, including files added while the annotator is running. The selector refreshes every five seconds; **Refresh recordings** checks immediately. Neither action reloads the current video or discards unsaved intervals. Use `annotate --videos PATH` to watch a different folder.
+
+New videos are imported without labels, and current source filenames appear in numerical order. Unchanged files are not rehashed on every refresh. Files that cannot yet be read are logged and retried when their size or modification time changes, without hiding other valid clips. If you renamed an existing video, its content hash links it to the existing clip and preserves every saved annotation. Internal clip IDs may retain earlier names so saved labels and references continue to work. Existing whole-clip labels are retained too; remove them in the annotator when replacing them with mixed-behavior intervals.
 
 To import without starting the annotation server:
 
@@ -285,6 +287,18 @@ For the one-person, multiple-session option:
 python training_workflow.py extract --group-by session
 python training_workflow.py train --holdout p01:s04
 ```
+
+To evaluate new clips from people represented in training, use a whole-clip split:
+
+```sh
+python train_model.py --annotated --split-by clip --seed 42 --output models/attention_image_known_people.json
+```
+
+This randomly holds out **one complete labeled clip from each person**, keeps their remaining clips in training, and never splits frames of the same clip across both sets. Each person needs at least two labeled clips. Both sets must contain both labels globally; the script checks this without using prediction results. The seed makes the choice reproducible. The default split remains whole people (`--split-by person`); that evaluates a different question: behavior on workers excluded from training.
+
+Use clip splitting to assess new takes of your demo participants. A higher score on this split would not establish generalization to new workers, and different test sets do not give a direct accuracy comparison. With very few clips, results can vary substantially by selection. Keep the seed fixed instead of choosing whichever split scores best.
+
+Reports and models record `split_by`, `split_seed`, exact training/evaluation clip IDs, and people in each set. For an explicit selection with `--split-by clip`, `--holdout` accepts the dataset's **clip IDs**, not person names. The separate `training_workflow.py train` command also supports `--split-by clip --seed 42`. When using `evaluate` on this model, `--groups` takes held-out clip IDs, and training clips are rejected even though the people appear in both sets.
 
 Expected outputs for image mode:
 

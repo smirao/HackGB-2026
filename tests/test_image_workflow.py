@@ -22,11 +22,41 @@ from stationwatch.dataset import (
 )
 from stationwatch.gemini import Review
 from stationwatch.image_model import EMBEDDING_SIZE, ImageExtractor, ImageModel, preprocess_image
+from stationwatch.image_training import split_clips
 from stationwatch.model import Prediction
 from stationwatch.pipeline import Packet, Pipeline
 from stationwatch.recording import SegmentRecorder
 from stationwatch.storage import EventStore
 from stationwatch.temporal import SustainedFlag
+
+
+def test_per_person_clip_split_is_reproducible_and_never_splits_frames():
+    people = np.repeat(["aaron", "hunter", "owen"], 12)
+    clip_ids = np.repeat([f"{person}{take}" for person in ["aaron", "hunter", "owen"] for take in [1, 2, 3]], 4)
+    labels = np.tile([0, 0, 1, 1], 9)
+    train, test = split_clips(labels, clip_ids, people, seed=42)
+    again = split_clips(labels, clip_ids, people, seed=42)
+    np.testing.assert_array_equal(train, again[0])
+    np.testing.assert_array_equal(test, again[1])
+    assert set(people[train]) == set(people[test]) == {"aaron", "hunter", "owen"}
+    assert len(set(clip_ids[test])) == 3
+    assert not set(clip_ids[train]) & set(clip_ids[test])
+    assert len(test) == 12 and len(train) == 24
+    for person in set(people):
+        assert len(set(clip_ids[test][people[test] == person])) == 1
+
+
+def test_per_person_clip_split_rejects_missing_training_or_evaluation_footage():
+    people = np.repeat(["aaron", "hunter", "owen"], 8)
+    clip_ids = np.repeat(["aaron1", "aaron2", "hunter1", "hunter2", "owen1", "owen2"], 4)
+    labels = np.tile([0, 0, 1, 1], 6)
+    with pytest.raises(ValueError, match="clip IDs"):
+        split_clips(labels, clip_ids, people, holdout=["owen"])
+    with pytest.raises(ValueError, match="Every person"):
+        split_clips(labels, clip_ids, people, holdout=["aaron1"])
+    clip_ids[people == "owen"] = "owen1"
+    with pytest.raises(ValueError, match="two labeled clips per person"):
+        split_clips(labels, clip_ids, people)
 
 
 def test_image_preprocessing_uses_metadata_normalization_rgb_and_crop():
