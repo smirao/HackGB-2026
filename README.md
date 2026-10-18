@@ -2,23 +2,140 @@
 
 ### Raspberry Pi: camera → Jev → Gemini → PostgreSQL dashboard
 
-Run the complete camera agent with your PostgreSQL and API credentials in `.env`:
+The agent calls Jev every second, asks Gemini to review after **at least five
+seconds** of consecutive off-task observations, and sends confirmed alerts,
+snapshots, and video to PostgreSQL for the dashboard.
+
+#### 1. Put the project on the Pi
+
+Copy or clone the repository onto the Raspberry Pi. Keep the project together:
+`pi_agent.py` imports the `stationwatch/` package, and `pyproject.toml` defines its
+dependencies. Copy your `.env` separately; Git does not include it. Create the
+virtual environment on the Pi using the steps below.
+
+Open a terminal in the project folder. For example, if you put it in your home
+directory:
 
 ```sh
+cd ~/HackGB-2026
+```
+
+#### 2. Install dependencies and create the virtual environment
+
+Run these commands from the project folder on Raspberry Pi OS:
+
+```sh
+sudo apt update
+sudo apt install -y python3-venv ffmpeg libgl1 libglib2.0-0
+
+python3 -m venv .venv
+source .venv/bin/activate
+
+python -m pip install --upgrade pip
 python -m pip install -e '.[camera]'
-# Install ffmpeg with your OS package manager first.
-python pi_agent.py --source 0 --task "Assemble the parts on the workbench" \
+```
+
+#### 3. Configure `.env`
+
+Put `.env` alongside `pi_agent.py`. If you already copied it to the Pi, edit that
+file to add any missing settings. For a new file, copy the template first:
+
+```sh
+cp .env.pi.example .env
+nano .env
+```
+
+Fill in your real credentials and station details:
+
+```dotenv
+TYPESAFE_API_KEY=your-typesafe-api-key
+GEMINI_API_KEY=your-gemini-api-key
+PGPASSWORD=your-postgres-password
+PGUSER=your-postgres-user
+PGDATABASE=your-postgres-database
+PGHOST=your-postgres-host
+PGPORT=5432
+PGSSLMODE=require
+STATION_ID=workbench-01
+STATION_NAME="Workbench 01"
+TASK_DESCRIPTION="Assemble the parts on the workbench"
+```
+
+Use the same PostgreSQL connection settings as the dashboard, including your
+provider's actual port and TLS mode. The database tables have already been
+provisioned for this project. Each Pi should have its own `STATION_ID`.
+The agent loads `.env` automatically; exported environment variables take
+precedence. Keep `.env` out of Git.
+
+#### 4. Start the agent with your camera
+
+**Direct USB camera:** stop any other script using that camera, then run:
+
+```sh
+python pi_agent.py --source 0
+```
+
+Use `--source 1` for another camera. The task and station come from `.env`; you
+can also supply them explicitly:
+
+```sh
+python pi_agent.py --source 0 \
+  --task "Assemble the parts on the workbench" \
   --station-id workbench-01 --station-name "Workbench 01"
 ```
 
-If your Flask camera streamer already owns the camera, use
-`--source http://127.0.0.1:5000/video_feed`. The agent calls Jev every second,
-asks Gemini to review after **at least five seconds** of consecutive off-task
-observations, and queues confirmed alerts, snapshots, and video for PostgreSQL.
-The dashboard reads those alerts using `python -m stationwatch.hub`.
-See [the Pi setup guide](deploy/RASPBERRY_PI.md) and
-[the environment template](.env.pi.example) for installation, credentials,
-retry behavior, and an optional service that starts at boot.
+**Existing Flask camera streamer:** if you saved the supplied camera code as
+`camera_stream.py`, activate the same virtual environment in a separate terminal
+and start the streamer:
+
+```sh
+cd ~/HackGB-2026
+source .venv/bin/activate
+python -m pip install flask
+python camera_stream.py --camera 0 --port 5000
+```
+
+Leave that terminal running. In the agent's terminal, run:
+
+```sh
+python pi_agent.py --source http://127.0.0.1:5000/video_feed
+```
+
+Use `/video_feed`, not the streamer's HTML root page. Replace `127.0.0.1` if the
+streamer runs on another device. In this mode, the streamer owns the camera and
+the agent reads its HTTP feed; browser viewers can continue using the Flask page.
+
+#### 5. View alerts, stop, and restart
+
+Open the project's dashboard to view confirmed alerts. To run the dashboard
+locally on the computer hosting it, use its project environment and PostgreSQL
+settings:
+
+```sh
+python -m stationwatch.hub
+```
+
+Open **http://127.0.0.1:8080** on that computer. Alerts appear only when Gemini
+confirms an off-task streak. Snapshots upload first; video becomes available once
+its 30-second recording segment closes. Database failures keep confirmed alerts
+in a local queue for retry.
+
+Press **Ctrl+C** in the agent terminal to stop, finalize the active recording,
+and attempt a final upload. When you open a new terminal on the Pi, reactivate
+the environment before starting again:
+
+```sh
+cd ~/HackGB-2026
+source .venv/bin/activate
+python pi_agent.py --source 0
+```
+
+Use the `/video_feed` source again if you are using the Flask streamer. Keep the
+same station ID and `data/pi-<station-id>/` directory so queued uploads survive
+restarts. Run `deactivate` when you want to leave the virtual environment.
+
+See [the Pi setup guide](deploy/RASPBERRY_PI.md) for detailed retry and recording
+behavior, camera options, and an optional systemd service that starts at boot.
 
 ### Classify a video feed with Jev
 
