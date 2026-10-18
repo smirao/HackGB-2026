@@ -1,5 +1,25 @@
 # StationWatch
 
+### Raspberry Pi: camera → Jev → Gemini → PostgreSQL dashboard
+
+Run the complete camera agent with your PostgreSQL and API credentials in `.env`:
+
+```sh
+python -m pip install -e '.[camera]'
+# Install ffmpeg with your OS package manager first.
+python pi_agent.py --source 0 --task "Assemble the parts on the workbench" \
+  --station-id workbench-01 --station-name "Workbench 01"
+```
+
+If your Flask camera streamer already owns the camera, use
+`--source http://127.0.0.1:5000/video_feed`. The agent calls Jev every second,
+asks Gemini to review after **at least five seconds** of consecutive off-task
+observations, and queues confirmed alerts, snapshots, and video for PostgreSQL.
+The dashboard reads those alerts using `python -m stationwatch.hub`.
+See [the Pi setup guide](deploy/RASPBERRY_PI.md) and
+[the environment template](.env.pi.example) for installation, credentials,
+retry behavior, and an optional service that starts at boot.
+
 ### Classify a video feed with Jev
 
 ```bash
@@ -60,7 +80,11 @@ baseline JPEGs, resized and padded to the API's image limits. Use
 `--port 8002` to change the local port or `--model jev-latest` to choose a model
 (also configurable through `TYPESAFE_MODEL`). Stop the server with Ctrl+C.
 
-Raspberry Pi workstation observation prototype: webcam → a frame every **0.5 seconds** → local image classifier → **more than five seconds of consecutive confident flags** → Gemini review → confirmed alert/evidence in MongoDB → central alert inbox. Normal observations stay on the Pi. Uncertain reviews and API failures do not become confirmed alerts.
+The older local-model workflow described below uses a frame every **0.5 seconds**,
+a trained local classifier, **more than five seconds of consecutive confident
+flags**, Gemini review, and MongoDB uploads. The Jev/PostgreSQL Pi agent above
+does not require that training workflow. Uncertain reviews and API failures do
+not become confirmed alerts in either workflow.
 
 The project includes USB/Picamera2/custom camera adapters, a synthetic demo, labeled-video training, pretrained MobileNet image features, an optional MoveNet/MediaPipe pose path, bounded inference workers, video recording, a durable upload queue, MongoDB/GridFS storage, and a black/gray alert dashboard. **No real labeled worker data or trained task-behavior classifier is bundled.**
 

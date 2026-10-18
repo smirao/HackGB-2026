@@ -14,6 +14,7 @@ from pathlib import Path
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from .storage import DatabaseUnavailable
 
@@ -87,6 +88,39 @@ class PostgresEventStore:
                 count(DISTINCT payload->>'station_id') AS stations FROM stationwatch_alerts"""
             ).fetchone()
         return dict(row, reviewed=row["total"] - row["pending"])
+
+    def publish_alert(self, event, snapshot):
+        if event.get("mode") == "demo" or not event.get("local", {}).get("flagged"):
+            raise ValueError("Only live, flagged events may be uploaded")
+        if event.get("review", {}).get("decision") != "inattentive":
+            raise ValueError("Only Gemini-confirmed events may be uploaded")
+        content = snapshot.read_bytes()
+        with self._connection() as connection:
+            # Retries preserve both the original evidence and the manager's review status.
+            connection.execute(
+                """INSERT INTO stationwatch_alerts(id, captured_at, payload)
+                VALUES (%s, %s, %s) ON CONFLICT (id) DO NOTHING""",
+                (event["id"], event["captured_at"], Jsonb(dict(event, clip_state="pending"))),
+            )
+            connection.execute(
+                """INSERT INTO stationwatch_evidence(event_id, kind, content)
+                VALUES (%s, 'snapshot', %s) ON CONFLICT (event_id, kind) DO NOTHING""",
+                (event["id"], content),
+            )
+
+    def publish_clip(self, event, clip):
+        content = clip.read_bytes()
+        with self._connection() as connection:
+            connection.execute(
+                """INSERT INTO stationwatch_evidence(event_id, kind, content)
+                VALUES (%s, 'clip', %s) ON CONFLICT (event_id, kind) DO NOTHING""",
+                (event["id"], content),
+            )
+            connection.execute(
+                """UPDATE stationwatch_alerts SET payload = jsonb_set(payload, '{clip_state}', '"ready"')
+                WHERE id = %s""",
+                (event["id"],),
+            )
 
     def media_path(self, event_id, kind):
         if kind not in {"snapshot", "clip"}:

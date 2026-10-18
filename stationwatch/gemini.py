@@ -22,8 +22,8 @@ class GeminiReviewer:
     def review(self, jpeg, features):
         image_mode = getattr(features, "kind", None) == "image_classification"
         context = (
-            f"A local image classifier flagged consecutive sampled frames. Context: {json.dumps(asdict(features))}. "
-            "Duration is reported by local code, not independently verified by you. "
+            f"An image classifier flagged consecutive sampled frames. Context: {json.dumps(asdict(features))}. "
+            "Duration is reported by the camera agent, not independently verified by you. "
             if image_mode
             else f"Machine center: {self.settings.machine_center}. Workstation polygon: "
             f"{self.settings.workstation_polygon}. These are normalized image coordinates. "

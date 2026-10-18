@@ -13,8 +13,8 @@ import httpx
 from dotenv import dotenv_values, set_key
 from fastapi import HTTPException
 
+from stationwatch.images import prepare_image
 from stationwatch.jev import classify_jpeg
-from worker_webpage import prepare_image
 
 ENV_FILE = Path(__file__).resolve().with_name(".env")
 

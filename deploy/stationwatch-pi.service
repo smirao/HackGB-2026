@@ -1,0 +1,19 @@
+[Unit]
+Description=StationWatch Jev/Gemini camera agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Edit User, WorkingDirectory, and ExecStart to match the Pi's checkout.
+User=pi
+WorkingDirectory=/home/pi/HackGB-2026
+ExecStart=/home/pi/HackGB-2026/.venv/bin/python pi_agent.py --source 0
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=90
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

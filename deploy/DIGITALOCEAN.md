@@ -90,11 +90,13 @@ these tables with the existing event JSON format, plus the event ID and capture
 timestamp columns. JPEG/MP4 evidence is optional and cached in a disposable OS
 temporary directory; it must remain in the database across container restarts.
 
-**The current Pi agent uploads to MongoDB.** This deployment does not migrate
-MongoDB alerts or change that uploader. Connecting a PostgreSQL hub will show
-only alerts written to the PostgreSQL tables; connecting the current Pi agent
-requires a separate producer/bridge change. If an existing Timescale service
-uses another schema, map the queries in `stationwatch/postgres.py` to that schema.
+The Jev camera agent, `python pi_agent.py`, writes confirmed alerts and evidence
+directly to these PostgreSQL tables. See [the Raspberry Pi guide](RASPBERRY_PI.md)
+for setup. Its database role also needs INSERT on both tables and UPDATE on
+`stationwatch_alerts`. Retries preserve the dashboard's manager review status.
+The older `stationwatch ... agent` local-model CLI still uploads to MongoDB;
+existing MongoDB alerts are not migrated. If an existing Timescale service uses
+another schema, map the queries in `stationwatch/postgres.py` to that schema.
 
 ## Local smoke test
 

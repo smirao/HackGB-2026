@@ -1,5 +1,6 @@
 -- Run once against the hub database, using a role permitted to create tables.
 -- The runtime role needs SELECT on both tables and UPDATE on stationwatch_alerts.
+-- The Pi producer also needs INSERT on both tables and UPDATE on stationwatch_alerts.
 -- These ordinary PostgreSQL tables also work in a Timescale database; no extension is required.
 CREATE TABLE IF NOT EXISTS stationwatch_alerts (
     id TEXT PRIMARY KEY,
