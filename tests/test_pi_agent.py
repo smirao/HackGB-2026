@@ -73,7 +73,7 @@ def test_five_second_streak_produces_dashboard_event_and_original_evidence(agent
     assert local.upload_counts()["pending"] == 1
 
 
-@pytest.mark.parametrize("interruption", ["on_task", "uncertain", "error", "low_confidence", "skipped"])
+@pytest.mark.parametrize("interruption", ["on_task", "error", "skipped"])
 def test_interrupted_observations_restart_streak(agent_setup, interruption):
     agent, local, reviewer, sample = agent_setup
 
@@ -83,12 +83,10 @@ def test_interrupted_observations_restart_streak(agent_setup, interruption):
                 continue
             answer = result()
             if i == 3:
-                if interruption in {"on_task", "uncertain"}:
+                if interruption == "on_task":
                     answer = result(interruption)
                 elif interruption == "error":
                     answer = None
-                elif interruption == "low_confidence":
-                    answer = result(confidence=0.4)
             agent.accept(replace(sample, sequence=i, monotonic_s=sample.monotonic_s + i), answer)
         assert agent.review_task is None
 
@@ -103,6 +101,20 @@ def test_stale_responses_cannot_trigger_gemini(agent_setup):
         agent.accept(replace(sample, sequence=i, monotonic_s=time.monotonic() - 40 + i), result())
     reviewer.review.assert_not_called()
     assert agent.gate.elapsed_s == 0
+
+
+def test_binary_off_task_streak_counts_low_confidence_choices(agent_setup):
+    agent, local, reviewer, sample = agent_setup
+
+    async def exercise():
+        for i in range(6):
+            agent.accept(replace(sample, sequence=i, monotonic_s=sample.monotonic_s + i),
+                         result(confidence=0.4))
+        await agent.review_task
+
+    asyncio.run(exercise())
+    reviewer.review.assert_called_once()
+    assert local.list()[0]['local']['score'] == 0.4
 
 
 @pytest.mark.parametrize("decision,confidence", [("attentive", 0.99), ("uncertain", 0.99),
@@ -174,7 +186,7 @@ def test_real_jev_client_samples_concurrently_and_consumes_in_capture_order(agen
             completed.append(index)
             return httpx.Response(200, json={"model": "jev-test", "answers": {"task_status": {
                 "type": "choice", "choice": "off_task", "confidence": 0.95,
-                "probabilities": {"on_task": 0.025, "off_task": 0.95, "uncertain": 0.025},
+                "probabilities": {"on_task": 0.05, "off_task": 0.95},
             }}})
         finally:
             active -= 1

@@ -29,6 +29,20 @@ Use a distinct `STATION_ID` for each camera. Set `TASK_DESCRIPTION` to the actua
 assigned task so both models evaluate the same behavior. Credentials stay on the
 Pi and are never included in an alert's payload or printed by the agent.
 
+For the joystick/laptop demonstration, use
+`TASK_DESCRIPTION="Operate the joystick/controller while facing and observing the laptop display"`.
+Tasks naming a joystick or controller activate a shared detailed rubric in Jev
+and Gemini. On task requires both a hand in an operating position on the controls
+and head/face orientation toward the machine. Clearly looking away is off task
+even with a hand still on the controller; visible hands off the controls or
+looking at a separate phone also counts as off task. Jev always chooses on task
+or off task, reporting lower confidence when visual evidence is ambiguous.
+Neither motion nor precise eye fixation must be proven from
+one frame. The five-second gate still determines when to request review.
+The console includes Jev's `model_choice` and `confidence`; there is no confidence
+cutoff converting its choice to a third label. Gemini can still return uncertain
+when it cannot confirm an off-task observation.
+
 ## Run with the USB camera directly
 
 ```sh
@@ -74,8 +88,8 @@ using the Flask page. Network streams have five-second open/read timeouts.
 - The agent continuously reads and records the camera while sending a current
   frame to Jev every second. Requests can overlap, up to eight in flight.
 - Results are processed in capture order even when API responses arrive out of
-  order. A confident `off_task` result starts or extends a streak; `on_task`,
-  `uncertain`, API failures, skipped sample ticks, and capture gaps over 1.5 seconds
+  order. Any valid `off_task` result starts or extends a streak; `on_task`,
+  API failures, skipped sample ticks, and capture gaps over 1.5 seconds
   break it. Responses older than 20 seconds do not extend a streak. Jev requests
   time out after 15 seconds; missed sampling times are skipped without catch-up
   bursts. Sampling continues while Gemini or database uploads are busy.
@@ -85,10 +99,9 @@ using the Flask page. Network streams have five-second open/read timeouts.
   duration. Both models evaluate visible task behavior; Gemini receives the last
   flagged snapshot and the streak context, rather than a video of the whole streak.
 - Only Gemini's `inattentive` result at confidence ≥0.8 creates an alert. Its
-  `attentive`, `uncertain`, invalid, or failed responses create none. Jev's default
-  confidence threshold is 0.6. These are configurable prototype thresholds, not
-  measured accuracy guarantees. `--jev-threshold` can raise Jev's threshold above
-  its shared client's minimum of 0.6; `--gemini-threshold` changes Gemini's cutoff.
+  `attentive`, `uncertain`, invalid, or failed responses create none. Jev is binary
+  and has no confidence cutoff or `--jev-threshold` option. `--gemini-threshold`
+  changes Gemini's cutoff; its confidence is not a measured accuracy guarantee.
 - Gemini attempts are at least five seconds apart, with one request in flight.
   A confirmed event starts a 30-second cooldown (`--cooldown` overrides it), so a
   sustained episode does not create an alert every second.

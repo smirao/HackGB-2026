@@ -58,7 +58,7 @@ PGPORT=5432
 PGSSLMODE=require
 STATION_ID=workbench-01
 STATION_NAME="Workbench 01"
-TASK_DESCRIPTION="Assemble the parts on the workbench"
+TASK_DESCRIPTION="Operate the joystick/controller while facing and observing the laptop display"
 ```
 
 Use the same PostgreSQL connection settings as the dashboard, including your
@@ -80,7 +80,7 @@ can also supply them explicitly:
 
 ```sh
 python pi_agent.py --source 0 \
-  --task "Assemble the parts on the workbench" \
+  --task "Operate the joystick/controller while facing and observing the laptop display" \
   --station-id workbench-01 --station-name "Workbench 01"
 ```
 
@@ -142,6 +142,34 @@ restarts. Run `deactivate` when you want to leave the virtual environment.
 See [the Pi setup guide](deploy/RASPBERRY_PI.md) for detailed retry and recording
 behavior, camera options, and an optional systemd service that starts at boot.
 
+#### Controller/laptop task rules
+
+When `--task` or `TASK_DESCRIPTION` names a **joystick** or **controller**, Jev
+and Gemini use the same detailed workstation rubric:
+
+- **On task:** a hand is in an operating position on the controls **and** the
+  person's head/face is directed toward the machine/laptop display.
+- **Off task:** the person clearly faces away from the machine, even while
+  holding/operating the controller; leaves the controls visibly untouched; or
+  looks at/uses a separate phone instead of observing the machine.
+
+Jev chooses only **on task** or **off task**, using the best-supported label
+when the image is ambiguous and reporting its confidence separately. A clear
+violation of either requirement supports off task even if the other is hidden.
+Gemini uses the same visible-behavior rules for confirmation and may still return
+uncertain when it cannot independently confirm the observation.
+
+A still frame does not need to prove joystick movement, button presses, precise
+eye fixation, or readable screen content. The five-second gate handles duration;
+the image classifier assesses the current frame. Other task descriptions keep
+the general task-behavior prompt. Restart the agent after updating its code or
+task description.
+
+The console prints Jev's `model_choice` and `confidence` alongside the decision.
+There is no Jev confidence cutoff or `--jev-threshold` option: every valid
+off-task decision counts toward the streak. API failures, missing frames, and
+on-task decisions break it; Gemini confirmation is still required for alerts.
+
 #### Send a manual test alert
 
 With `camera_stream.py` running, open another terminal on the Pi and run:
@@ -183,9 +211,9 @@ updates the saved key; other `.env` entries are preserved. You can also edit the
 
 `worker_video.py` reads the webcam continuously and sends a current frame to Jev
 every second, starting with the first frame. Each printed result includes capture
-time, `on_task`, `off_task`, or `uncertain`, confidence, and Jev's original choice.
-It uses the same API request, image preparation, response validation, and 0.6
-confidence threshold as the photo webpage. Frames are sent to TypeSafe and are
+time, `on_task` or `off_task`, confidence, and Jev's original choice.
+It uses the same binary API request, image preparation, and response validation
+as the photo webpage. Frames are sent to TypeSafe and are
 not saved locally.
 
 Use `--source 1` for another camera, `--source 'rtsp://host/stream'` for a stream,
@@ -214,10 +242,10 @@ video script has saved your key.
 
 Open **http://127.0.0.1:8001**. Upload a JPEG, PNG, or WebP image (up to 10 MB and 200 MP),
 describe the worker's assigned task, and select **Classify photo**. The page shows
-**On task**, **Off task**, or **Uncertain**, plus Jev's confidence and probabilities.
-Results below 0.6 confidence are displayed as uncertain; this is a prototype
-threshold, not a measured accuracy guarantee. A photo only supports an observation
-of visible behavior at one moment.
+**On task** or **Off task**, plus Jev's confidence and the two outcome probabilities.
+Low-confidence results keep their chosen label. Confidence is reported by the
+model and is not a measured accuracy guarantee. A photo only supports an
+observation of visible behavior at one moment.
 
 Get a key from the [TypeSafe console](https://console.typesafe.ai/). The Python
 server keeps it out of the browser and sends the photo to the

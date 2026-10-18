@@ -49,7 +49,6 @@
     .empty p { font-size:13px; max-width:260px; margin:8px auto 0; }
     .status-label { display:inline-block; padding:6px 12px; border-radius:6px; background:#2c3528; color:var(--green); font-weight:650; font-size:14px; }
     .status-label.off_task { background:#3b2726; color:#ffb2a9; }
-    .status-label.uncertain { background:#393323; color:#f2ce81; }
     #result-note { margin:16px 0 24px; font-size:13px; }
     .metric { display:flex; justify-content:space-between; align-items:center; margin:22px 0; font-size:12px; color:var(--muted); }
     .metric strong { color:var(--text); font-size:24px; font-weight:500; }
@@ -99,17 +98,16 @@
             <div class="eyebrow">Outcome probabilities</div>
             <div class="probability"><div><span>On task</span><span id="on_task-value"></span></div><progress id="on_task-bar" max="1" value="0" aria-label="On task probability"></progress></div>
             <div class="probability"><div><span>Off task</span><span id="off_task-value"></span></div><progress id="off_task-bar" max="1" value="0" aria-label="Off task probability"></progress></div>
-            <div class="probability"><div><span>Uncertain</span><span id="uncertain-value"></span></div><progress id="uncertain-bar" max="1" value="0" aria-label="Uncertain probability"></progress></div>
             <p id="model-name"></p>
           </div>
         </div>
       </section>
     </div>
-    <footer>A photo shows visible behavior at one moment. Ambiguous scenes and results below 60% Jev confidence are marked uncertain for human review. Jev image support is experimental.</footer>
+    <footer>A photo shows visible behavior at one moment. Jev chooses on task or off task for every valid classification; confidence indicates how certain the model is. Jev image support is experimental.</footer>
   </main>
   <script>
     const $ = id => document.getElementById(id);
-    const names = {on_task:'On task', off_task:'Off task', uncertain:'Uncertain'};
+    const names = {on_task:'On task', off_task:'Off task'};
     let selected = null, previewUrl = null, busy = false, configured = false;
     const percent = value => `${Math.round(value * 100)}%`;
     function refresh() { $('submit').disabled = busy || !configured || !selected || !$('task').value.trim(); }
@@ -164,9 +162,7 @@
         if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Please check the photo and task description.');
         $('decision').textContent = names[data.decision];
         $('decision').className = `status-label ${data.decision}`;
-        $('result-note').textContent = data.low_confidence
-          ? `Jev selected “${names[data.model_choice]},” but confidence is below 60%. Review this photo manually.`
-          : {on_task:'The visible activity was classified as related to the assigned task.', off_task:'The visible activity was classified as unrelated to the assigned task.', uncertain:'The photo does not provide enough clear evidence for a task classification.'}[data.decision];
+        $('result-note').textContent = {on_task:'The visible activity was classified as related to the assigned task.', off_task:'The visible activity was classified as unrelated to the assigned task.'}[data.decision];
         $('confidence').textContent = percent(data.confidence);
         for (const label of Object.keys(names)) {
           $(`${label}-value`).textContent = percent(data.probabilities[label]);

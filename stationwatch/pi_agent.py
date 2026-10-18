@@ -172,11 +172,13 @@ class PiAgent:
             self.gate.reset()
         self.previous_sequence = sample.sequence
         fresh = time.monotonic() - sample.monotonic_s <= 20
-        flagged = bool(result and result["decision"] == "off_task"
-                       and result["confidence"] >= self.settings.local_threshold and fresh)
+        flagged = bool(result and result["decision"] == "off_task" and fresh)
         sustained = self.gate.update(flagged, sample.monotonic_s)
-        log.info("Jev: %s | off-task streak=%.1fs | capture=%s",
-                 result["decision"] if result else "unavailable", self.gate.elapsed_s, sample.captured_at)
+        log.info("Jev: %s | model_choice=%s | confidence=%s | off-task streak=%.1fs | capture=%s",
+                 result["decision"] if result else "unavailable",
+                 result.get("model_choice", result["decision"]) if result else "unavailable",
+                 f"{result['confidence']:.3f}" if result else "unavailable",
+                 self.gate.elapsed_s, sample.captured_at)
         now = time.monotonic()
         if (not sustained or now - self.last_attempt < self.settings.review_interval_s
                 or now - self.last_confirmed < self.settings.event_cooldown_s
@@ -310,7 +312,6 @@ def main():
     parser.add_argument("--fps", type=int, default=15)
     parser.add_argument("--model", default=os.environ.get("TYPESAFE_MODEL", "jev-latest"))
     parser.add_argument("--gemini-model", default=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"))
-    parser.add_argument("--jev-threshold", type=float, default=0.6)
     parser.add_argument("--gemini-threshold", type=float, default=0.8)
     parser.add_argument("--cooldown", type=float, default=30, help="Minimum seconds between confirmed alerts")
     parser.add_argument("--max-in-flight", type=int, default=8)
@@ -325,8 +326,6 @@ def main():
         parser.error("--station-id must use letters, numbers, underscores, or hyphens")
     if not 1 <= args.max_in_flight <= 32:
         parser.error("--max-in-flight must be between 1 and 32")
-    if not 0.6 <= args.jev_threshold <= 1:
-        parser.error("--jev-threshold must be between 0.6 and 1")
     if not math.isfinite(args.cooldown):
         parser.error("--cooldown must be finite")
     for key in (() if args.force_alert else ("TYPESAFE_API_KEY", "GEMINI_API_KEY")):
@@ -349,7 +348,7 @@ def main():
                 "pi-" + args.station_id + ("-manual-test" if args.force_alert else "")
             ),
             sample_interval_s=1, flag_duration_s=5, analysis_backend="image",
-            gemini_model=args.gemini_model, local_threshold=args.jev_threshold,
+            gemini_model=args.gemini_model,
             gemini_threshold=args.gemini_threshold, event_cooldown_s=args.cooldown,
         )
     except ValidationError:

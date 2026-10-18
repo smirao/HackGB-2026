@@ -84,7 +84,7 @@ class FakeCapture:
 
 
 def answer(choice="on_task", confidence=0.9):
-    probabilities = {label: 0.025 for label in ("on_task", "off_task", "uncertain")}
+    probabilities = {label: 0.05 for label in ("on_task", "off_task")}
     probabilities[choice] = 0.95
     return {"model": "jev-test", "answers": {"task_status": {
         "type": "choice", "choice": choice, "confidence": confidence, "probabilities": probabilities,
@@ -123,7 +123,7 @@ def test_video_samples_are_sent_while_previous_requests_are_pending(tmp_path, mo
     output = capsys.readouterr()
     assert images == [0, 80, 160]  # Frames at 0.0, 0.2, and 0.4 seconds.
     assert peak >= 2
-    assert output.out.count("uncertain confidence=0.400 model_choice=off_task") == 3
+    assert output.out.count("off_task confidence=0.400 model_choice=off_task") == 3
     assert "0.00s" in output.out and "0.40s" in output.out
     assert capture.released
 
