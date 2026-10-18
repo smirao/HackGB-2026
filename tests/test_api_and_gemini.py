@@ -79,7 +79,8 @@ def test_malformed_reviews_fail_closed(content):
         reviewer.close()
 
 
-def test_gemini_request_contains_image_and_geometry_without_key_in_url():
+@pytest.mark.parametrize("backend", ["pose", "image"])
+def test_gemini_request_contains_image_and_context_without_key_in_url(backend):
     settings = Settings()
     reviewer = GeminiReviewer(settings, "test-key")
     reviewer.client.close()
@@ -89,7 +90,13 @@ def test_gemini_request_contains_image_and_geometry_without_key_in_url():
         assert request.headers["x-goog-api-key"] == "test-key"
         body = json.loads(request.content)
         assert body["contents"][0]["parts"][1]["inlineData"]["mimeType"] == "image/jpeg"
-        assert "Machine center" in body["contents"][0]["parts"][0]["text"]
+        prompt = body["contents"][0]["parts"][0]["text"]
+        assert settings.task_description in prompt
+        if backend == "pose":
+            assert "Machine center" in prompt
+        else:
+            assert '"sustained_flag_s": 5.5' in prompt
+            assert "Machine center" not in prompt and "head_angle_deg" not in prompt
         return httpx.Response(
             200,
             json={
@@ -114,6 +121,11 @@ def test_gemini_request_contains_image_and_geometry_without_key_in_url():
         headers={"x-goog-api-key": "test-key"}, transport=httpx.MockTransport(respond)
     )
     try:
-        assert reviewer.review(b"jpeg", Features(90, 120, 0.4, 0.5, 1, 0.8, 0.5, 3)).decision == "uncertain"
+        features = Features(90, 120, 0.4, 0.5, 1, 0.8, 0.5, 3)
+        if backend == "image":
+            from stationwatch.image_model import ImageObservation
+
+            features = ImageObservation(5.5, 5, (0, 0, 1, 1))
+        assert reviewer.review(b"jpeg", features).decision == "uncertain"
     finally:
         reviewer.close()

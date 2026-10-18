@@ -1,0 +1,5 @@
+{
+  "mongo_database": "stationwatch",
+  "mongo_timeout_s": 15,
+  "data_dir": "data"
+}

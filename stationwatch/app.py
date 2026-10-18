@@ -4,21 +4,33 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+from .storage import DatabaseUnavailable
 
-def create_app(pipeline, store, dashboard_token=None):
+
+def create_app(pipeline, store, dashboard_token=None, uploader=None):
     @asynccontextmanager
     async def lifespan(app):
-        pipeline.start()
+        if pipeline is not None:
+            pipeline.start()
+        if uploader is not None:
+            uploader.start()
         try:
             yield
         finally:
-            pipeline.close()
+            if pipeline is not None:
+                pipeline.close()
+            if uploader is not None:
+                uploader.close()
             store.close()
 
     app = FastAPI(title="StationWatch", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+
+    @app.exception_handler(DatabaseUnavailable)
+    async def database_unavailable(request, exc):
+        return JSONResponse(status_code=503, content={"detail": "Alert database unavailable. Please retry."})
 
     @app.middleware("http")
     async def privacy_headers(request, call_next):
@@ -68,7 +80,8 @@ def create_app(pipeline, store, dashboard_token=None):
 
     @app.get("/api/status", dependencies=[Depends(authorize)])
     def status():
-        return dict(pipeline.status(), events=store.counts())
+        state = pipeline.status() if pipeline is not None else {"role": "hub", "mode": "hub"}
+        return dict(state, events=store.counts())
 
     @app.get("/api/events", dependencies=[Depends(authorize)])
     def events():
@@ -89,7 +102,13 @@ def create_app(pipeline, store, dashboard_token=None):
     @app.get("/api/events/{event_id}/snapshot", dependencies=[Depends(authorize)])
     def snapshot(event_id: str):
         find_event(event_id)
-        path = store.root / "snapshots" / (event_id + ".jpg")
+        if pipeline is None:
+            try:
+                path = store.media_path(event_id, "snapshot")
+            except FileNotFoundError:
+                raise HTTPException(404, "Snapshot unavailable") from None
+        else:
+            path = store.root / "snapshots" / (event_id + ".jpg")
         if not path.is_file():
             raise HTTPException(404, "Snapshot unavailable")
         return FileResponse(path, media_type="image/jpeg")
@@ -97,13 +116,22 @@ def create_app(pipeline, store, dashboard_token=None):
     @app.get("/api/events/{event_id}/video", dependencies=[Depends(authorize)])
     def video(event_id: str):
         event = find_event(event_id)
-        path = store.root / "recordings" / event["segment"]
+        if pipeline is None:
+            try:
+                path = store.media_path(event_id, "clip")
+            except FileNotFoundError:
+                raise HTTPException(409, "Video is uploading or unavailable; retry shortly") from None
+        else:
+            path = store.root / "recordings" / event["segment"]
         if not path.is_file():
             raise HTTPException(409, "Recording is still finalizing or unavailable; retry after segment end")
         return FileResponse(path, media_type="video/mp4")
 
     @app.get("/api/stream", dependencies=[Depends(authorize)])
     async def stream(request: Request):
+        if pipeline is None:
+            raise HTTPException(404, "The alert hub does not receive a continuous camera stream")
+
         async def frames():
             previous = None
             while not await request.is_disconnected():

@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>StationWatch · Training labels</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, sans-serif;
+        color: #ededed;
+        background: #101010;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      header {
+        border-bottom: 1px solid #333;
+        padding: 20px 4%;
+        font-weight: 650;
+      }
+      main {
+        max-width: 1300px;
+        margin: auto;
+        padding: 24px 4%;
+      }
+      h1 {
+        font-size: 22px;
+        margin: 0 0 8px;
+      }
+      p {
+        color: #aaa;
+        line-height: 1.6;
+        font-size: 13px;
+      }
+      label {
+        font-size: 12px;
+        color: #bbb;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+        border-radius: 5px;
+        border: 1px solid #494949;
+        background: #202020;
+        color: #eee;
+        padding: 8px 10px;
+      }
+      button {
+        cursor: pointer;
+        font-size: 12px;
+      }
+      button:hover {
+        background: #353535;
+      }
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible {
+        outline: 2px solid #ddd;
+        outline-offset: 3px;
+      }
+      .primary {
+        background: #e5e5e5;
+        color: #181818;
+      }
+      .primary:hover {
+        background: #fff;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr);
+        gap: 22px;
+        margin-top: 18px;
+      }
+      .card {
+        padding: 20px;
+        background: #1a1a1a;
+        border: 1px solid #333;
+        border-radius: 10px;
+      }
+      h2 {
+        font-size: 15px;
+        margin: 0 0 14px;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin: 12px 0;
+      }
+      .row label {
+        flex: 1;
+        min-width: 100px;
+      }
+      video {
+        width: 100%;
+        display: block;
+        border-radius: 6px;
+        background: #090909;
+      }
+      .stage {
+        position: relative;
+      }
+      .stage svg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+      .stage.calibrating svg {
+        pointer-events: auto;
+        cursor: crosshair;
+      }
+      .small {
+        font-size: 11px;
+        color: #aaa;
+      }
+      .status {
+        min-height: 24px;
+        font-size: 13px;
+        margin: 14px 0;
+        color: #ccc;
+      }
+      .error {
+        color: #f39b8e;
+      }
+      .interval {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        border-top: 1px solid #333;
+        padding: 12px 0;
+        font-size: 12px;
+      }
+      .interval button {
+        font-size: 10px;
+        padding: 5px 7px;
+      }
+      .clock {
+        font:
+          12px ui-monospace,
+          monospace;
+        line-height: 1.8;
+        margin: 12px 0;
+      }
+      hr {
+        border: 0;
+        border-top: 1px solid #333;
+        margin: 22px 0;
+      }
+      .badge {
+        color: #edbf73;
+      }
+      .empty {
+        padding: 15px 0;
+        color: #aaa;
+        font-size: 12px;
+      }
+      #clips {
+        max-width: 100%;
+        width: 100%;
+      }
+      @media (max-width: 900px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (max-width: 500px) {
+        main {
+          padding: 20px 4%;
+        }
+        .card {
+          padding: 15px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>StationWatch / Training labels</header>
+    <main>
+      <h1>Label what happened, and when.</h1>
+      <p>
+        These human labels train your task-behavior classifier. Unlabeled video
+        is excluded. The five-second alert timer runs separately on the Pi.
+      </p>
+      <label
+        >Recording
+        <select id="clips">
+          <option value="">Loading recordings…</option>
+        </select></label
+      >
+      <div id="status" class="status" role="status"></div>
+      <div class="grid">
+        <section class="card">
+          <h2>1. Watch the recording</h2>
+          <div class="stage" id="stage">
+            <video id="video" controls playsinline></video
+            ><svg
+              id="overlay"
+              viewBox="0 0 1000 1000"
+              preserveAspectRatio="none"
+              aria-label="Camera calibration overlay"
+            ></svg>
+          </div>
+          <div class="clock">
+            Video time: <span id="video-clock">0.00</span>s · Capture elapsed:
+            <span id="capture-clock">0.00</span>s
+          </div>
+          <p class="small">
+            Labels use video time. Label visible behavior from its onset; do not
+            wait five seconds before starting label 1.
+          </p>
+          <div class="row" id="calibration-controls">
+            <button id="machine">Click machine target</button
+            ><button id="polygon">Draw workstation boundary</button
+            ><button id="done">Finish drawing</button
+            ><button class="primary" id="save-calibration">
+              Save calibration
+            </button>
+          </div>
+          <p id="calibration-note" class="small">
+            Pause on a clear frame. Set the task point and click at least three
+            boundary corners in order. Save once for this fixed camera setup.
+          </p>
+        </section>
+        <section class="card">
+          <h2>2. Mark behavior intervals</h2>
+          <p>
+            Label <b>0</b>: acceptable task behavior, including necessary
+            glances and reaching.<br />Label <b>1</b>: visible task
+            disengagement, starting when the behavior begins.
+          </p>
+          <div class="row">
+            <label
+              >Start (video seconds)<input
+                id="start"
+                type="number"
+                step="0.01"
+                min="0"
+                value="0" /></label
+            ><label
+              >End (video seconds)<input
+                id="end"
+                type="number"
+                step="0.01"
+                min="0"
+            /></label>
+          </div>
+          <div class="row">
+            <button id="start-now">Set start here</button
+            ><button id="end-now">Set end here</button
+            ><button id="to-end">End of video</button>
+          </div>
+          <label
+            >Ground-truth label
+            <select id="label">
+              <option value="0">0 · Acceptable task behavior</option>
+              <option value="1">1 · Visible task disengagement</option>
+            </select></label
+          >
+          <div class="row">
+            <button class="primary" id="add">Add interval</button
+            ><button class="primary" id="save">Save all intervals</button>
+          </div>
+          <p class="small">
+            Add intervals, then save. Intervals cannot overlap. Leave occluded
+            or ambiguous sections unlabeled. Split clips when behavior changes.
+            Label 1 describes the frame; runtime code decides whether it
+            persists.
+          </p>
+          <div id="intervals" class="empty">Select a recording.</div>
+          <p id="coverage" class="small"></p>
+        </section>
+      </div>
+    </main>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      let recordings = [],
+        selected = "",
+        intervals = [],
+        timeline = [],
+        geometry = null,
+        mode = null,
+        dirty = false;
+      let setup = null;
+      const esc = (value) =>
+        String(value).replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
+        );
+      function message(text, error = false) {
+        $("status").textContent = text;
+        $("status").classList.toggle("error", error);
+      }
+      async function api(url, options = {}) {
+        const r = await fetch(url, options);
+        const value = await r.json();
+        if (!r.ok)
+          throw Error(
+            typeof value.detail === "string"
+              ? value.detail
+              : "Invalid input. Check the values.",
+          );
+        return value;
+      }
+      function draw() {
+        if (setup?.analysis_backend === "image") {
+          const [l, t, r, b] = setup.image_crop;
+          $("overlay").innerHTML =
+            `<rect x="${l * 1000}" y="${t * 1000}" width="${(r - l) * 1000}" height="${(b - t) * 1000}" fill="none" stroke="#ddd" stroke-width="3"/>`;
+          return;
+        }
+        if (!geometry) return;
+        const points = geometry.workstation_polygon
+            .map(([x, y]) => `${x * 1000},${y * 1000}`)
+            .join(" "),
+          [x, y] = geometry.machine_center;
+        $("overlay").innerHTML =
+          `<polygon points="${points}" fill="#eeeeee0a" stroke="#ddd" stroke-width="3" vector-effect="non-scaling-stroke"/><circle cx="${x * 1000}" cy="${y * 1000}" r="9" fill="#edbf73"/>`;
+      }
+      function render() {
+        intervals.sort((a, b) => a.start_s - b.start_s);
+        $("intervals").innerHTML = intervals.length
+          ? intervals
+              .map(
+                (v, i) =>
+                  `<div class="interval"><span>${v.start_s.toFixed(2)} – ${v.end_s.toFixed(2)}s · <span class="${v.label ? "badge" : ""}">label ${v.label}</span></span><button data-remove="${i}">Remove</button></div>`,
+              )
+              .join("")
+          : '<div class="empty">No labels yet. Unlabeled sections will be skipped.</div>';
+        document.querySelectorAll("[data-remove]").forEach(
+          (b) =>
+            (b.onclick = () => {
+              intervals.splice(Number(b.dataset.remove), 1);
+              dirty = true;
+              render();
+            }),
+        );
+        const clip = recordings.find((c) => c.id === selected);
+        const seconds = intervals.reduce(
+          (sum, v) => sum + v.end_s - v.start_s,
+          0,
+        );
+        $("coverage").textContent = clip
+          ? `${seconds.toFixed(1)} of ${clip.duration_s.toFixed(1)} video seconds labeled${dirty ? " · unsaved changes" : ""}`
+          : "";
+      }
+      async function loadClip(id) {
+        if (dirty && !confirm("Discard unsaved label changes?")) {
+          $("clips").value = selected;
+          return;
+        }
+        selected = id;
+        intervals = [];
+        dirty = false;
+        mode = null;
+        $("stage").classList.remove("calibrating");
+        if (!id) return;
+        try {
+          const [labels, times] = await Promise.all([
+            api(`/api/clips/${encodeURIComponent(id)}/labels`),
+            api(`/api/clips/${encodeURIComponent(id)}/timeline`),
+          ]);
+          intervals = labels.intervals;
+          timeline = times;
+          $("video").src = `/api/clips/${encodeURIComponent(id)}/video`;
+          $("start").value = "0";
+          $("end").value = "";
+          render();
+          draw();
+          message(
+            "Loaded " +
+              id +
+              (setup?.analysis_backend === "image"
+                ? ". Image mode: save labels, then run extract."
+                : ". Save calibration before extracting features."),
+          );
+        } catch (e) {
+          message(e.message, true);
+        }
+      }
+      $("video").ontimeupdate = () => {
+        const current = $("video").currentTime;
+        $("video-clock").textContent = current.toFixed(2);
+        const clip = recordings.find((c) => c.id === selected);
+        const index = clip
+          ? Math.min(timeline.length - 1, Math.floor(current * clip.fps))
+          : 0;
+        $("capture-clock").textContent = (
+          timeline[index]?.[0] ?? current
+        ).toFixed(2);
+      };
+      $("video").onerror = () =>
+        message(
+          "This recording could not be played. Use a browser-playable H.264 MP4.",
+          true,
+        );
+      $("start-now").onclick = () => {
+        $("start").value = $("video").currentTime.toFixed(2);
+      };
+      $("end-now").onclick = () => {
+        $("end").value = $("video").currentTime.toFixed(2);
+      };
+      $("to-end").onclick = () => {
+        const clip = recordings.find((c) => c.id === selected);
+        if (clip) $("end").value = String(clip.duration_s);
+      };
+      $("add").onclick = () => {
+        const clip = recordings.find((c) => c.id === selected);
+        if (!clip) return;
+        const start = Number($("start").value),
+          end = Number($("end").value);
+        if (
+          !$("end").value ||
+          !Number.isFinite(start) ||
+          !Number.isFinite(end) ||
+          start < 0 ||
+          end <= start ||
+          end > clip.duration_s + 0.001
+        ) {
+          message("Choose a valid start and end within this video.", true);
+          return;
+        }
+        if (intervals.some((v) => start < v.end_s && end > v.start_s)) {
+          message("That interval overlaps an existing label.", true);
+          return;
+        }
+        intervals.push({
+          start_s: start,
+          end_s: end,
+          label: Number($("label").value),
+        });
+        dirty = true;
+        $("start").value = String(end);
+        render();
+        message("Interval added. Click Save all intervals to keep it.");
+      };
+      $("save").onclick = async () => {
+        if (!selected) return;
+        try {
+          const result = await api(
+            `/api/clips/${encodeURIComponent(selected)}/labels`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ intervals }),
+            },
+          );
+          intervals = result.intervals;
+          dirty = false;
+          render();
+          message("Labels saved. Re-run extract after changing labels.");
+        } catch (e) {
+          message(e.message, true);
+        }
+      };
+      function calibrationMode(value) {
+        $("video").pause();
+        mode = value;
+        $("stage").classList.toggle("calibrating", !!value);
+        $("calibration-note").textContent =
+          value === "machine"
+            ? "Click the machine/task point in the video."
+            : value === "polygon"
+              ? "Click at least three workstation corners in order, then Finish drawing."
+              : "Save calibration to keep these coordinates.";
+      }
+      $("machine").onclick = () => calibrationMode("machine");
+      $("polygon").onclick = () => {
+        if (!geometry) return;
+        geometry.workstation_polygon = [];
+        draw();
+        calibrationMode("polygon");
+      };
+      $("done").onclick = () => calibrationMode(null);
+      $("overlay").onclick = (event) => {
+        if (!mode || !geometry) return;
+        const box = $("overlay").getBoundingClientRect();
+        const point = [
+          (event.clientX - box.left) / box.width,
+          (event.clientY - box.top) / box.height,
+        ];
+        if (mode === "machine") {
+          geometry.machine_center = point;
+          calibrationMode(null);
+        } else geometry.workstation_polygon.push(point);
+        draw();
+      };
+      $("save-calibration").onclick = async () => {
+        try {
+          await api("/api/calibration", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(geometry),
+          });
+          calibrationMode(null);
+          message(
+            "Calibration saved. Existing feature CSVs must be extracted again.",
+          );
+        } catch (e) {
+          message(e.message, true);
+        }
+      };
+      $("clips").onchange = () => loadClip($("clips").value);
+      window.addEventListener("beforeunload", (event) => {
+        if (dirty) {
+          event.preventDefault();
+          event.returnValue = "";
+        }
+      });
+      (async () => {
+        try {
+          [recordings, geometry, setup] = await Promise.all([
+            api("/api/clips"),
+            api("/api/calibration"),
+            api("/api/setup"),
+          ]);
+          if (setup.analysis_backend === "image") {
+            $("calibration-controls").hidden = true;
+            $("calibration-controls").style.display = "none";
+            $("calibration-note").textContent =
+              "Image mode · The outlined crop is used for training and inference. No body tracker or machine calibration is required. Keep this camera position fixed. Task: " +
+              setup.task_description;
+          }
+          $("clips").innerHTML = recordings.length
+            ? recordings
+                .map(
+                  (c) =>
+                    `<option value="${esc(c.id)}">${esc(c.id)} · ${esc(c.person)} / ${esc(c.session)} · ${c.duration_s.toFixed(1)}s</option>`,
+                )
+                .join("")
+            : '<option value="">No clips. Use record or import-video first.</option>';
+          if (recordings.length) await loadClip(recordings[0].id);
+          else
+            message("Record a clip in the terminal, then refresh this page.");
+        } catch (e) {
+          message(e.message, true);
+        }
+      })();
+    </script>
+  </body>
+</html>

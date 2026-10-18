@@ -54,6 +54,8 @@ class SegmentRecorder:
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            # Ctrl-C belongs to the capture process; let it close the encoder pipe and finalize the MP4.
+            start_new_session=True,
         )
         self.frame_count, self.started_s = 0, now
 

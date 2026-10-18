@@ -4,12 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="color-scheme" content="dark" />
-    <title>StationWatch · Workstation review</title>
+    <title>StationWatch · Alert hub</title>
     <style>
       :root {
         --bg: #101010;
         --panel: #1a1a1a;
-        --line: #333333;
+        --line: #333;
         --muted: #a3a3a3;
         --text: #ededed;
         --accent: #e5e5e5;
@@ -29,14 +29,16 @@
           sans-serif;
       }
       button,
-      input {
+      input,
+      select {
         font: inherit;
       }
       button {
         cursor: pointer;
       }
       button:focus-visible,
-      input:focus-visible {
+      input:focus-visible,
+      select:focus-visible {
         outline: 2px solid var(--accent);
         outline-offset: 4px;
       }
@@ -60,9 +62,6 @@
         font-size: 20px;
         letter-spacing: -0.7px;
       }
-      .brand svg {
-        color: var(--accent);
-      }
       .brand span {
         font-weight: 400;
         color: var(--muted);
@@ -81,7 +80,6 @@
         font-size: 11px;
         font-weight: 600;
         letter-spacing: 0.6px;
-        color: var(--accent);
         white-space: nowrap;
       }
       .pill.amber {
@@ -89,21 +87,8 @@
       }
       main {
         max-width: 1600px;
-        padding: 34px 4% 50px;
+        padding: 28px 4% 50px;
         margin: auto;
-      }
-      .eyebrow {
-        font-size: 11px;
-        letter-spacing: 1.8px;
-        color: var(--accent);
-        font-weight: 650;
-        text-transform: uppercase;
-      }
-      h1 {
-        margin: 7px 0 6px;
-        font-size: 32px;
-        font-weight: 550;
-        letter-spacing: -1px;
       }
       p {
         color: var(--muted);
@@ -115,7 +100,7 @@
         border: 1px solid var(--line);
         border-radius: 12px;
         overflow: hidden;
-        margin-bottom: 26px;
+        margin-bottom: 24px;
       }
       .stat {
         padding: 19px 23px;
@@ -145,8 +130,9 @@
       }
       .grid {
         display: grid;
-        grid-template-columns: minmax(0, 1.5fr) minmax(310px, 1fr);
+        grid-template-columns: minmax(0, 1.3fr) minmax(310px, 1fr);
         gap: 24px;
+        align-items: start;
       }
       .card {
         background: var(--panel);
@@ -171,81 +157,35 @@
         font-size: 11px;
         color: var(--muted);
       }
-      .live {
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: var(--accent);
-        display: inline-block;
-        margin-right: 7px;
+      .filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        padding: 15px 20px;
+        border-bottom: 1px solid var(--line);
       }
-      .camera {
-        aspect-ratio: 16/9;
-        position: relative;
-        background: #141414;
+      .filters label {
         display: flex;
         align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      }
-      .camera img {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-        position: absolute;
-        inset: 0;
-      }
-      .camera-tag {
-        position: absolute;
-        top: 15px;
-        left: 15px;
-        font-size: 10px;
-        letter-spacing: 1px;
-        background: #171717dd;
-        border: 1px solid #73737366;
-        padding: 4px 9px;
-        border-radius: 4px;
-        z-index: 1;
-      }
-      .camera-off {
+        gap: 8px;
+        font-size: 12px;
         color: var(--muted);
-        text-align: center;
-        padding: 30px;
       }
-      .camera-note {
-        padding: 13px 20px;
-        color: var(--muted);
-        font-size: 11px;
-        display: flex;
-        justify-content: space-between;
-        gap: 10px;
-      }
-      .observation {
-        padding: 17px 20px;
-        border-top: 1px solid var(--line);
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 10px;
-      }
-      .observation label {
-        display: block;
-        font-size: 10px;
-        color: var(--muted);
-        margin-bottom: 5px;
-      }
-      .observation strong {
-        font-size: 14px;
-        font-weight: 500;
-      }
-      .section-gap {
-        margin-top: 24px;
+      select {
+        background: var(--bg);
+        color: var(--text);
+        border: 1px solid #4a4a4a;
+        border-radius: 5px;
+        padding: 6px 9px;
+        max-width: 220px;
       }
       .feed {
-        max-height: 390px;
+        max-height: 680px;
+        min-height: 300px;
         overflow: auto;
       }
       .empty {
-        padding: 40px 22px;
+        padding: 48px 24px;
         text-align: center;
         color: var(--muted);
         font-size: 13px;
@@ -253,7 +193,7 @@
       .event {
         display: block;
         width: 100%;
-        padding: 17px 20px;
+        padding: 20px;
         border: 0;
         border-bottom: 1px solid var(--line);
         background: transparent;
@@ -270,8 +210,8 @@
       .event-top {
         display: flex;
         justify-content: space-between;
-        gap: 10px;
-        margin-bottom: 5px;
+        gap: 12px;
+        margin-bottom: 6px;
       }
       .event-title {
         font-size: 13px;
@@ -284,13 +224,22 @@
         font-size: 11px;
         color: var(--muted);
       }
+      .event-reason {
+        display: block;
+        margin-top: 9px;
+        color: #bdbdbd;
+        font-size: 12px;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
+      }
       .dot {
         display: inline-block;
         width: 6px;
         height: 6px;
         background: var(--amber);
         border-radius: 50%;
-        margin-right: 7px;
+        margin-right: 8px;
       }
       .detail {
         padding: 20px;
@@ -308,7 +257,7 @@
       .detail video {
         width: 100%;
         border-radius: 6px;
-        background: #101010;
+        background: var(--bg);
         margin-top: 14px;
       }
       .reason {
@@ -329,6 +278,7 @@
       .detail dd {
         margin: 3px 0 0;
         font-size: 12px;
+        overflow-wrap: anywhere;
       }
       .button-row {
         display: flex;
@@ -357,57 +307,17 @@
       }
       .notice {
         padding: 11px 16px;
-        border: 1px solid #685334;
-        color: var(--amber);
-        background: #342a1b66;
+        border: 1px solid #754a43;
+        color: var(--red);
+        background: #3d282366;
         border-radius: 6px;
         font-size: 12px;
         margin-bottom: 22px;
       }
-      .error {
-        color: var(--red);
-        border-color: #754a43;
-        background: #3d282366;
-      }
-      .method {
-        padding: 20px;
-        font-size: 12px;
-        color: var(--muted);
-      }
-      .steps {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin: 0 0 16px;
-        gap: 10px;
-        color: var(--text);
-        font-size: 11px;
-      }
-      .step {
-        display: flex;
-        gap: 7px;
-        align-items: center;
-      }
-      .num {
-        display: inline-grid;
-        place-items: center;
-        width: 23px;
-        height: 23px;
-        border: 1px solid #595959;
-        border-radius: 50%;
-        color: var(--accent);
-        font-size: 10px;
-      }
-      .arrow {
-        color: #737373;
-      }
       .footer {
         color: #858585;
-        margin-top: 24px;
+        margin-top: 18px;
         font-size: 11px;
-        display: flex;
-        justify-content: space-between;
-        gap: 10px;
       }
       .hidden {
         display: none !important;
@@ -481,25 +391,18 @@
         .stat:nth-child(-n + 2) {
           border-bottom: 1px solid var(--line);
         }
-        h1 {
-          font-size: 28px;
-        }
-        .observation {
-          padding: 15px;
-          gap: 5px;
-        }
-        .steps {
-          flex-wrap: wrap;
-        }
-        .camera-note,
-        .footer {
-          flex-direction: column;
-        }
         .card-head {
           padding: 16px;
         }
         .grid {
           gap: 18px;
+        }
+        .filters {
+          padding: 15px;
+        }
+        .event-top {
+          flex-direction: column;
+          gap: 4px;
         }
       }
     </style>
@@ -524,126 +427,81 @@
             stroke="currentColor"
             stroke-width="1.6"
           /></svg
-        >StationWatch <span>/ Operations</span>
+        >StationWatch <span>/ Alert hub</span>
       </div>
       <div class="header-right">
-        <span id="clock"></span
-        ><span class="pill amber" id="mode">CONNECTING</span>
+        <span id="clock"></span><span class="pill" id="mode">CONNECTING</span>
       </div>
     </header>
     <main>
-      <div id="error" role="status" class="notice error hidden"></div>
-      <section class="stats" aria-label="Monitoring statistics">
+      <div id="error" role="status" class="notice hidden"></div>
+      <section class="stats" aria-label="Alert statistics">
         <div class="stat">
-          <label>Station status</label><strong id="station-status">—</strong
-          ><small id="station-name">Waiting for camera</small>
-        </div>
-        <div class="stat">
-          <label>Awaiting human review</label
+          <label>Awaiting review</label
           ><strong class="accent" id="pending">—</strong
-          ><small>Corroborated flags</small>
+          ><small>Confirmed alerts</small>
         </div>
         <div class="stat">
-          <label>Analyzed frames</label><strong id="analyzed">—</strong
-          ><small id="cadence">0.5s target interval</small>
+          <label>Total alerts</label><strong id="total">—</strong
+          ><small>Stored evidence</small>
         </div>
         <div class="stat">
-          <label>Second-stage requests</label><strong id="requests">—</strong
-          ><small id="review-errors">0 review failures</small>
+          <label>Reviewed</label><strong id="reviewed-count">—</strong
+          ><small>Acknowledged by a manager</small>
+        </div>
+        <div class="stat">
+          <label>Stations with alerts</label><strong id="stations">—</strong
+          ><small>Across stored alerts</small>
         </div>
       </section>
       <div class="grid">
-        <div>
-          <section class="card">
-            <div class="card-head">
-              <h2><span class="live" id="live-dot"></span>Workstation view</h2>
-              <span class="sub" id="session-label">Live stream</span>
-            </div>
-            <div class="camera">
-              <div class="camera-off" id="camera-off">
-                Waiting for the camera feed…
-              </div>
-              <img
-                id="stream"
-                class="hidden"
-                alt="Current workstation camera feed"
-              /><span class="camera-tag" id="camera-tag">STATION CAMERA</span>
-            </div>
-            <div class="camera-note">
-              <span id="observation">Observation: waiting</span
-              ><span id="dropped">0 skipped samples</span>
-            </div>
-            <div class="observation">
-              <div>
-                <label>Head angle · 2D</label><strong id="head-angle">—</strong>
-              </div>
-              <div>
-                <label>Body angle · 2D</label><strong id="body-angle">—</strong>
-              </div>
-              <div>
-                <label>Similar-pose dwell</label><strong id="dwell">—</strong>
-              </div>
-            </div>
-          </section>
-          <section class="card section-gap">
-            <div class="card-head">
-              <h2>Flagged moments</h2>
-              <span class="sub">Latest 100 · capture time</span>
-            </div>
-            <div id="events" class="feed">
-              <div class="empty">
-                No confirmed flags yet.<br />Events appear after both stages
-                flag an observation.
-              </div>
-            </div>
-          </section>
-          <div class="footer">
-            <span>Orientation observations require human interpretation.</span
-            ><span>StationWatch / Prototype 0.1</span>
+        <section class="card">
+          <div class="card-head">
+            <h2>Alert inbox</h2>
+            <span class="sub">Latest 100 · capture time</span>
           </div>
-        </div>
-        <div>
-          <section class="card">
-            <div class="card-head">
-              <h2>Evidence review</h2>
-              <span class="pill amber" id="detail-badge">HUMAN REVIEW</span>
+          <div class="filters">
+            <label
+              >Status
+              <select id="review-filter">
+                <option value="pending">Awaiting review</option>
+                <option value="all">All alerts</option>
+                <option value="reviewed">Reviewed</option>
+              </select></label
+            ><label
+              >Station
+              <select id="station-filter">
+                <option value="all">All stations</option>
+              </select></label
+            >
+          </div>
+          <div id="events" class="feed">
+            <div class="empty">
+              No alerts received.<br />Confirmed alerts from your Pis will
+              appear here.
             </div>
-            <div id="detail" class="detail">
-              <div class="empty">
-                Select a flagged moment to inspect its<br />snapshot,
-                measurements, and video.
-              </div>
+          </div>
+        </section>
+        <section class="card">
+          <div class="card-head">
+            <h2>Evidence review</h2>
+            <span class="pill amber" id="detail-badge">SELECT AN ALERT</span>
+          </div>
+          <div id="detail" class="detail">
+            <div class="empty">
+              Select an alert to inspect its snapshot,<br />video, and recorded
+              measurements.
             </div>
-          </section>
-          <section class="card section-gap">
-            <div class="card-head">
-              <h2>How a flag reaches you</h2>
-              <span class="sub">Two stages</span>
-            </div>
-            <div class="method">
-              <div class="steps">
-                <span class="step"><span class="num">01</span>Local model</span
-                ><span class="arrow">→</span
-                ><span class="step"
-                  ><span class="num">02</span>Gemini review</span
-                ><span class="arrow">→</span
-                ><span class="step"><span class="num">03</span>You</span>
-              </div>
-              <p>
-                Only agreement creates an event. Missing poses, uncertain
-                reviews, and API failures create no confirmed event. Check
-                system status for monitoring gaps.
-              </p>
-            </div>
-          </section>
-        </div>
+          </div>
+        </section>
       </div>
+      <div class="footer">Showing confirmed observations for human review.</div>
     </main>
     <dialog id="login">
       <form id="login-form">
-        <h2>Open your workstation.</h2>
+        <h2>Open the alert hub.</h2>
         <p>
-          Enter the dashboard access token configured on the monitoring service.
+          Enter the dashboard access token configured on the central computer.
         </p>
         <input
           id="token"
@@ -659,9 +517,7 @@
       const $ = (id) => document.getElementById(id);
       let events = [],
         selected = null,
-        streaming = false,
-        polling = false,
-        mode = "";
+        polling = false;
       const esc = (value) =>
         String(value).replace(
           /[&<>"']/g,
@@ -684,50 +540,86 @@
         });
       const fixed = (value, unit = "") =>
         value == null ? "—" : Number(value).toFixed(1) + unit;
+      function showError(message) {
+        $("error").textContent = message;
+        $("error").classList.remove("hidden");
+      }
       async function api(path, options = {}) {
-        const r = await fetch(path, options);
-        if (r.status === 401) {
+        const response = await fetch(path, options);
+        if (response.status === 401) {
           if (!$("login").open) $("login").showModal();
           throw Error("Dashboard access required");
         }
-        if (!r.ok) throw Error("Service returned " + r.status);
-        return r.json();
+        if (response.status === 503)
+          throw Error("Alert database unavailable. Retrying…");
+        if (!response.ok)
+          throw Error("Unable to load alerts (" + response.status + ").");
+        return response.json();
+      }
+      function filtered() {
+        const status = $("review-filter").value,
+          station = $("station-filter").value;
+        return events.filter(
+          (e) =>
+            (status === "all" ||
+              (status === "reviewed" ? e.reviewed : !e.reviewed)) &&
+            (station === "all" || e.station_id === station),
+        );
       }
       function renderEvents() {
-        $("events").innerHTML = events.length
-          ? events
+        const list = filtered();
+        $("events").innerHTML = list.length
+          ? list
               .map(
                 (e) =>
-                  `<button class="event ${selected === e.id ? "selected" : ""}" data-id="${esc(e.id)}"><span class="event-top"><span class="event-title">${e.reviewed ? "" : '<span class="dot"></span>'}${e.mode === "demo" ? "Demo orientation flag" : "Orientation flag"}</span><time>${esc(time(e.captured_at))}</time></span><small>${esc(e.station_name)} · ${e.reviewed ? "Reviewed" : "Needs review"} · ${fixed(e.features.dwell_s, "s dwell")}</small></button>`,
+                  `<button class="event ${selected === e.id ? "selected" : ""}" data-id="${esc(e.id)}"><span class="event-top"><span class="event-title">${e.reviewed ? "" : '<span class="dot"></span>'}${e.mode === "demo" ? "Demo orientation alert" : "Task behavior alert"}</span><time>${esc(time(e.captured_at))}</time></span><small>${esc(e.station_name)} · ${e.reviewed ? "Reviewed" : "Awaiting review"} · ${e.mode === "image" ? fixed(e.features.sustained_flag_s, "s flagged") : fixed(e.features.dwell_s, "s dwell")}</small><span class="event-reason">${esc(e.review.reason)}</span></button>`,
               )
               .join("")
-          : '<div class="empty">No confirmed flags yet.<br>Events appear after both stages flag an observation.</div>';
+          : events.length
+            ? '<div class="empty">No alerts match this filter.</div>'
+            : '<div class="empty">No alerts received.<br>Confirmed alerts from your Pis will appear here.</div>';
         document
           .querySelectorAll(".event")
-          .forEach((el) => (el.onclick = () => selectEvent(el.dataset.id)));
+          .forEach(
+            (button) => (button.onclick = () => selectEvent(button.dataset.id)),
+          );
+      }
+      function syncReviewState() {
+        const e = events.find((v) => v.id === selected);
+        if (e && $("mark-reviewed")) {
+          $("mark-reviewed").disabled = e.reviewed;
+          $("mark-reviewed").textContent = e.reviewed
+            ? "Marked reviewed"
+            : "Mark reviewed";
+          $("detail-badge").textContent = e.reviewed
+            ? "REVIEWED"
+            : "AWAITING REVIEW";
+        }
       }
       function selectEvent(id) {
         const e = events.find((v) => v.id === id);
         if (!e) return;
         selected = id;
         renderEvents();
-        $("detail-badge").textContent = e.reviewed
-          ? "REVIEWED"
-          : "HUMAN REVIEW";
         $("detail").innerHTML =
-          `<h3>${e.mode === "demo" ? "Synthetic orientation flag" : "Orientation flag"}</h3><p class="sub">${esc(time(e.captured_at))} · ${esc(e.station_id)}</p><img src="/api/events/${encodeURIComponent(e.id)}/snapshot" alt="Snapshot of selected flagged moment"><p class="reason">${esc(e.review.reason)}</p><dl><div><dt>Local source</dt><dd>${esc(e.local.source.replaceAll("_", " "))}</dd></div><div><dt>${e.mode === "demo" ? "Synthetic score" : "Gemini confidence"}</dt><dd>${Math.round(e.review.confidence * 100)}%</dd></div><div><dt>Head / body angle</dt><dd>${fixed(e.features.head_angle_deg, "°")} / ${fixed(e.features.body_angle_deg, "°")}</dd></div><div><dt>Similar-pose dwell</dt><dd>${fixed(e.features.dwell_s, " seconds")}</dd></div><div><dt>Video offset in segment</dt><dd>${fixed(e.video_offset_s, " seconds")}</dd></div><div><dt>Session elapsed time</dt><dd>${fixed(e.elapsed_s, " seconds")}</dd></div></dl><p class="sub">Review source: ${esc(e.review_model)}</p><div class="button-row"><button class="btn" id="mark-reviewed" ${e.reviewed ? "disabled" : ""}>${e.reviewed ? "Marked reviewed" : "Mark reviewed"}</button><button class="btn secondary" id="load-video">Open video context</button></div><div id="video-slot"></div><p class="video-note" id="video-note"></p>`;
+          `<h3>${e.mode === "demo" ? "Synthetic orientation alert" : "Task behavior alert"}</h3><p class="sub">${esc(time(e.captured_at))} · ${esc(e.station_name)}</p><img src="/api/events/${encodeURIComponent(e.id)}/snapshot" alt="Snapshot of selected alert"><p class="reason">${esc(e.review.reason)}</p><dl><div><dt>Local source</dt><dd>${esc(e.local.source.replaceAll("_", " "))}</dd></div><div><dt>${e.mode === "demo" ? "Synthetic score" : "Gemini confidence"}</dt><dd>${Math.round(e.review.confidence * 100)}%</dd></div>${e.mode === "image" ? `<div><dt>Consecutive local flags</dt><dd>${fixed(e.features.sustained_flag_s, " seconds")}</dd></div><div><dt>Required duration</dt><dd>More than ${fixed(e.features.required_flag_s, " seconds")}</dd></div>` : `<div><dt>Head / body angle · 2D</dt><dd>${fixed(e.features.head_angle_deg, "°")} / ${fixed(e.features.body_angle_deg, "°")}</dd></div><div><dt>Similar-pose dwell</dt><dd>${fixed(e.features.dwell_s, " seconds")}</dd></div>`}<div><dt>Video offset in segment</dt><dd>${fixed(e.video_offset_s, " seconds")}</dd></div><div><dt>Station ID</dt><dd>${esc(e.station_id)}</dd></div></dl><p class="sub">Review source: ${esc(e.review_model)}</p><div class="button-row"><button class="btn" id="mark-reviewed">Mark reviewed</button><button class="btn secondary" id="load-video">Open video context</button></div><div id="video-slot"></div><p class="video-note" id="video-note"></p>`;
+        syncReviewState();
         $("mark-reviewed").onclick = async () => {
+          const button = $("mark-reviewed");
+          button.disabled = true;
           try {
             await api(`/api/events/${encodeURIComponent(e.id)}/reviewed`, {
               method: "POST",
             });
-            e.reviewed = true;
             const current = events.find((v) => v.id === e.id);
             if (current) current.reviewed = true;
-            selectEvent(e.id);
-            await refresh();
+            e.reviewed = true;
+            renderEvents();
+            syncReviewState();
+            refresh();
           } catch (err) {
             showError(err.message);
+            if (selected === e.id) button.disabled = false;
           }
         };
         $("load-video").onclick = async () => {
@@ -736,31 +628,31 @@
           try {
             const url = `/api/events/${encodeURIComponent(e.id)}/video`;
             const response = await fetch(url, {
-              method: "GET",
               headers: { Range: "bytes=0-0" },
             });
             if (!response.ok) {
               if (response.status === 409)
                 throw Error(
-                  "Video is still finalizing or unavailable. Retry after the 30-second segment ends.",
+                  "Video is still preparing or uploading. Try again shortly.",
                 );
               throw Error("Video unavailable (" + response.status + ").");
             }
             await response.body?.cancel();
             if (selected !== e.id) return;
             $("video-slot").innerHTML =
-              '<video controls playsinline aria-label="Video context for selected event"></video>';
+              '<video controls playsinline aria-label="Recorded video for selected alert"></video>';
             const video = $("video-slot").querySelector("video");
             video.src = url;
             video.onloadedmetadata = () => {
               video.currentTime = Math.max(0, e.video_offset_s - 2);
             };
             video.onerror = () => {
-              $("video-note").textContent =
-                "Video could not be decoded. Check the recording on the server.";
+              if (selected === e.id)
+                $("video-note").textContent =
+                  "This recording could not be decoded.";
             };
             $("video-note").textContent =
-              "Playback starts approximately 2 seconds before the flag. Offset refers to this segment.";
+              "Playback starts approximately 2 seconds before the alert within this recording segment.";
           } catch (err) {
             if (selected === e.id) $("video-note").textContent = err.message;
           } finally {
@@ -768,103 +660,65 @@
           }
         };
       }
-      function showError(message) {
-        $("error").textContent = message;
-        $("error").classList.remove("hidden");
-      }
       async function refresh() {
         if (polling) return;
         polling = true;
         try {
-          const [s, list] = await Promise.all([
+          const [status, list] = await Promise.all([
             api("/api/status"),
             api("/api/events"),
           ]);
           events = list;
-          mode = s.mode;
           $("mode").textContent =
-            mode === "demo"
-              ? "SYNTHETIC DEMO"
-              : mode === "baseline"
-                ? "LIVE · BASELINE"
-                : "LIVE · TRAINED";
-          $("station-status").textContent = s.running ? "Streaming" : "Offline";
-          $("live-dot").style.background = s.running
-            ? "var(--accent)"
-            : "var(--red)";
-          $("station-name").textContent = s.station_name;
-          $("pending").textContent = s.events.pending;
-          $("analyzed").textContent = s.analyzed_frames.toLocaleString();
-          $("requests").textContent = s.review_requests;
-          $("cadence").textContent = s.sample_interval_s + "s target interval";
-          $("review-errors").textContent = s.review_errors + " review failures";
-          $("dropped").textContent = s.skipped_samples + " skipped samples";
-          $("head-angle").textContent = fixed(
-            s.last_features?.head_angle_deg,
-            "°",
-          );
-          $("body-angle").textContent = fixed(
-            s.last_features?.body_angle_deg,
-            "°",
-          );
-          $("dwell").textContent = fixed(s.last_features?.dwell_s, "s");
-          const observations = {
-            waiting: "Waiting for a frame",
-            unknown: "Unknown · pose unavailable or ambiguous",
-            local_flag: "Local flag · second-stage review or cooldown",
-            no_flag: "No local flag",
-            unavailable: "Monitoring unavailable",
-          };
-          $("observation").textContent =
-            observations[s.last_observation] || s.last_observation;
-          $("session-label").textContent =
-            mode === "demo" ? "Synthetic feed" : "Camera feed";
-          $("camera-tag").textContent =
-            mode === "demo" ? "SYNTHETIC DEMO" : s.station_id.toUpperCase();
-          if (s.last_error) showError(s.last_error);
-          else $("error").classList.add("hidden");
-          if (s.running && !streaming) {
-            $("stream").src = "/api/stream?t=" + Date.now();
-            $("stream").classList.remove("hidden");
-            $("camera-off").classList.add("hidden");
-            streaming = true;
-          }
-          if (!s.running) {
-            streaming = false;
-            $("stream").classList.add("hidden");
-            $("stream").removeAttribute("src");
-            $("camera-off").textContent =
-              "Camera offline. Check the monitoring service.";
-            $("camera-off").classList.remove("hidden");
-          }
+            status.mode === "demo"
+              ? "LOCAL DEMO"
+              : status.role === "hub"
+                ? "ALERT HUB"
+                : "LOCAL ALERTS";
+          $("pending").textContent = status.events.pending;
+          $("total").textContent = status.events.total;
+          $("reviewed-count").textContent =
+            status.events.reviewed ??
+            status.events.total - status.events.pending;
+          $("stations").textContent =
+            status.events.stations ??
+            new Set(events.map((e) => e.station_id)).size;
+          const currentStation = $("station-filter").value;
+          const stations = [
+            ...new Map(
+              events.map((e) => [e.station_id, e.station_name]),
+            ).entries(),
+          ];
+          $("station-filter").innerHTML =
+            '<option value="all">All stations</option>' +
+            stations
+              .map(
+                ([id, name]) =>
+                  `<option value="${esc(id)}">${esc(name)}</option>`,
+              )
+              .join("");
+          if (stations.some(([id]) => id === currentStation))
+            $("station-filter").value = currentStation;
+          $("error").classList.add("hidden");
           renderEvents();
-          if (!selected && events.length) selectEvent(events[0].id);
-          else if (selected) {
-            const current = events.find((v) => v.id === selected);
-            if (current && $("mark-reviewed")) {
-              $("mark-reviewed").disabled = current.reviewed;
-              $("mark-reviewed").textContent = current.reviewed
-                ? "Marked reviewed"
-                : "Mark reviewed";
-              $("detail-badge").textContent = current.reviewed
-                ? "REVIEWED"
-                : "HUMAN REVIEW";
-            }
-          }
+          syncReviewState();
+          if (!selected && filtered().length) selectEvent(filtered()[0].id);
         } catch (err) {
           showError(err.message);
-          $("station-status").textContent = "Unavailable";
-          $("live-dot").style.background = "var(--red)";
         } finally {
           polling = false;
         }
       }
-      $("stream").onerror = () => {
-        streaming = false;
-        $("stream").classList.add("hidden");
-        $("camera-off").textContent = "Feed interrupted. Retrying…";
-        $("camera-off").classList.remove("hidden");
-      };
+      for (const id of ["review-filter", "station-filter"])
+        $(id).onchange = () => {
+          renderEvents();
+          if (!filtered().some((e) => e.id === selected)) {
+            selected = null;
+            $("detail-badge").textContent = "SELECT AN ALERT";
+            $("detail").innerHTML =
+              '<div class="empty">Select an alert to inspect its snapshot,<br>video, and recorded measurements.</div>';
+          }
+        };
       $("login").addEventListener("cancel", (e) => e.preventDefault());
       $("login-form").onsubmit = async (e) => {
         e.preventDefault();

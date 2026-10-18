@@ -11,6 +11,7 @@ import numpy as np
 
 from .features import DwellTracker
 from .storage import make_event
+from .temporal import SustainedFlag
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ class Pipeline:
         self.reviewer, self.recorder, self.store, self.mode = reviewer, recorder, store, mode
         self.session_id = uuid.uuid4().hex
         self.dwell = DwellTracker(settings.dwell_gap_s)
+        self.flag_gate = SustainedFlag(settings.flag_duration_s, settings.dwell_gap_s)
         # Single local worker preserves pose chronology. Each pool accepts at most one in-flight task.
         self.local_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="local-inference")
         self.review_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gemini-review")
@@ -66,6 +68,7 @@ class Pipeline:
             "last_observation": "waiting",
             "last_error": None,
             "last_features": None,
+            "sustained_flag_s": 0.0,
         }
 
     def update(self, **values):
@@ -160,25 +163,46 @@ class Pipeline:
         try:
             if time.monotonic() - packet.monotonic_s > self.settings.max_analysis_age_s:
                 self.dwell.update(None, packet.monotonic_s)
+                self.flag_gate.reset()
                 self.increment("skipped_samples")
+                self.update(last_observation="unknown", last_features=None, sustained_flag_s=0)
                 return
-            features = self.dwell.update(
-                self.extractor.extract(packet.image, packet.elapsed_s), packet.monotonic_s
-            )
+            extracted = self.extractor.extract(packet.image, packet.elapsed_s)
+            features = extracted if self.mode == "image" else self.dwell.update(extracted, packet.monotonic_s)
             self.increment("analyzed_frames")
             if features is None:
-                self.update(last_observation="unknown", last_features=None)
+                self.flag_gate.reset()
+                self.update(last_observation="unknown", last_features=None, sustained_flag_s=0)
                 return
             prediction = self.model.predict(features)
+            now = time.monotonic()
+            fresh = now - packet.monotonic_s <= self.settings.max_analysis_age_s
+            sustained = self.flag_gate.update(prediction.flagged and fresh, packet.monotonic_s)
+            if self.mode == "image":
+                from .image_model import ImageObservation
+
+                features = ImageObservation(
+                    self.flag_gate.elapsed_s, self.settings.flag_duration_s, self.settings.image_crop
+                )
             self.update(
                 last_features=asdict(features),
                 last_observation="local_flag" if prediction.flagged else "no_flag",
+                sustained_flag_s=self.flag_gate.elapsed_s,
+            )
+            log.info(
+                "Local model: %s | distraction_score=%.3f threshold=%.3f | "
+                "sustained=%.1fs | capture=%s | fresh=%s",
+                "DISTRACTED" if prediction.flagged else "ON TASK",
+                prediction.score,
+                self.settings.local_threshold,
+                self.flag_gate.elapsed_s,
+                packet.captured_at,
+                fresh,
             )
             # Slow extraction must not send stale captures for a new review.
-            now = time.monotonic()
             if (
-                not prediction.flagged
-                or now - packet.monotonic_s > self.settings.max_analysis_age_s
+                not sustained
+                or not fresh
                 or now - self.last_attempt < self.settings.review_interval_s
                 or now - self.last_confirmed < self.settings.event_cooldown_s
             ):
@@ -190,8 +214,14 @@ class Pipeline:
             self.review_pool.submit(self._review, packet, features, prediction)
         except Exception as exc:  # noqa: BLE001 — failed model adapters must not produce confirmed events.
             self.dwell.update(None, packet.monotonic_s)
+            self.flag_gate.reset()
             log.error("Local inference failed (%s)", type(exc).__name__)
-            self.update(last_observation="unknown", last_error="Local inference failed; no event created.")
+            self.update(
+                last_observation="unknown",
+                last_features=None,
+                sustained_flag_s=0,
+                last_error="Local inference failed; no event created.",
+            )
         finally:
             self.local_slot.release()
 

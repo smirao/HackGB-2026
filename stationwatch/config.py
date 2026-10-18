@@ -21,6 +21,12 @@ class Settings(BaseModel):
     )
     pose_backend: Literal["mediapipe", "movenet"] = "mediapipe"
     pose_model_path: Path = Path("models/pose_landmarker_lite.task")
+    analysis_backend: Literal["pose", "image"] = "pose"
+    image_model_path: Path = Path("models/mobilenet_v3_small.tflite")
+    image_crop: tuple[float, float, float, float] = (0, 0, 1, 1)
+    task_description: str = Field(
+        "One worker performing the assigned task at the work surface", min_length=1, max_length=2000
+    )
     classifier_path: Path = Path("models/attention.joblib")
     local_threshold: float = Field(0.8, ge=0, le=1)
     gemini_model: str = Field("gemini-2.5-flash", pattern=r"^[A-Za-z0-9._-]+$")
@@ -30,14 +36,21 @@ class Settings(BaseModel):
     event_cooldown_s: float = Field(30, ge=0)
     max_analysis_age_s: float = Field(1.5, gt=0)
     dwell_gap_s: float = Field(1.5, gt=0)
+    flag_duration_s: float = Field(5, ge=0, le=300)
     baseline_angle_deg: float = Field(60, ge=0, le=180)
     baseline_dwell_s: float = Field(2, gt=0)
     segment_seconds: float = Field(30, ge=1, le=300)
     unflagged_retention_hours: float = Field(24, gt=0)
+    mongo_database: str = Field("stationwatch", pattern=r"^[A-Za-z0-9_-]+$")
+    mongo_poll_s: float = Field(5, ge=0.5, le=60)
+    mongo_timeout_s: float = Field(15, ge=1, le=60)
     data_dir: Path = Path("data")
 
     @model_validator(mode="after")
     def validate_geometry(self):
+        left, top, right, bottom = self.image_crop
+        if not (0 <= left < right <= 1 and 0 <= top < bottom <= 1):
+            raise ValueError("image_crop must be normalized [left, top, right, bottom] with positive area")
         if self.width % 2 or self.height % 2:
             raise ValueError("H.264 recording requires even width and height")
         points = [self.machine_center, *self.workstation_polygon]

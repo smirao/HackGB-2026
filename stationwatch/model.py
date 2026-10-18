@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .config import Settings
-from .features import FEATURE_NAMES, Features
+from .features import FEATURE_NAMES, Features, extraction_context
 
 
 @dataclass(frozen=True)
@@ -36,6 +36,12 @@ class TrainedModel:
         artifact = joblib.load(settings.classifier_path)
         if artifact.get("schema_version") != 1 or artifact.get("features") != FEATURE_NAMES:
             raise ValueError("Classifier feature schema does not match this service")
+        if artifact.get("feature_context") is not None and artifact["feature_context"] != extraction_context(
+            settings
+        ):
+            raise ValueError(
+                "Pose model/calibration differs from training. Use the exported deployment config or retrain."
+            )
         self.classifier = artifact["classifier"]
         self.threshold = settings.local_threshold
         classes = list(self.classifier.classes_)

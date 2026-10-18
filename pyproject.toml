@@ -16,10 +16,12 @@ dependencies = [
 pose = ["mediapipe>=0.10.18,<0.11"]
 lite = ["ai-edge-litert>=2,<3"]
 train = ["scikit-learn>=1.5,<2", "joblib>=1.4,<2"]
-dev = ["pytest>=8,<10", "ruff>=0.9,<1"]
+mongo = ["pymongo>=4.10,<5"]
+dev = ["pytest>=8,<10", "ruff>=0.9,<1", "mongomock>=4.3,<5"]
 
 [project.scripts]
 stationwatch = "stationwatch.cli:main"
+stationwatch-training = "stationwatch.dataset:main"
 
 [tool.setuptools.package-data]
 stationwatch = ["static/*.html"]

@@ -1,3 +1,4 @@
+import hashlib
 import math
 from dataclasses import asdict, dataclass, replace
 
@@ -23,6 +24,24 @@ class Features:
 
 
 FEATURE_NAMES = list(Features.__dataclass_fields__)
+
+
+def extraction_context(settings):
+    """Geometry and extraction settings that must agree between training and deployment."""
+    values = settings.model_dump(mode="json")
+    names = [
+        "pose_backend",
+        "width",
+        "height",
+        "machine_center",
+        "workstation_polygon",
+        "sample_interval_s",
+        "dwell_gap_s",
+    ]
+    return {
+        **{name: values[name] for name in names},
+        "pose_model_sha256": hashlib.sha256(settings.pose_model_path.read_bytes()).hexdigest(),
+    }
 
 
 def angle_deg(vector, target):

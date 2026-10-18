@@ -1,14 +1,48 @@
 {
   "station_id": "press-01",
-  "station_name": "Hydraulic press · Station 01",
-  "camera_backend": "picamera2",
+  "station_name": "Hydraulic press \u00b7 Station 01",
+  "camera_backend": "opencv",
+  "camera_source": 0,
   "pose_backend": "movenet",
   "pose_model_path": "models/movenet_lightning.tflite",
   "width": 960,
   "height": 540,
   "fps": 15,
   "sample_interval_s": 0.5,
-  "machine_center": [0.78, 0.5],
-  "workstation_polygon": [[0.15, 0.15], [0.9, 0.15], [0.9, 0.95], [0.15, 0.95]],
-  "data_dir": "data"
+  "machine_center": [
+    0.78,
+    0.5
+  ],
+  "workstation_polygon": [
+    [
+      0.15,
+      0.15
+    ],
+    [
+      0.9,
+      0.15
+    ],
+    [
+      0.9,
+      0.95
+    ],
+    [
+      0.15,
+      0.95
+    ]
+  ],
+  "data_dir": "data",
+  "mongo_database": "stationwatch",
+  "mongo_poll_s": 5,
+  "analysis_backend": "image",
+  "image_model_path": "models/mobilenet_v3_small.tflite",
+  "classifier_path": "models/attention_image.json",
+  "image_crop": [
+    0,
+    0,
+    1,
+    1
+  ],
+  "flag_duration_s": 5,
+  "task_description": "One worker performs the assigned demonstration task with the work item on the counter. Judge visible engagement with that work item; normal reaching and necessary checks can be task-related."
 }

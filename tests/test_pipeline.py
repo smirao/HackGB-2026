@@ -1,3 +1,4 @@
+import logging
 import threading
 import time
 from dataclasses import replace
@@ -44,7 +45,7 @@ def setup(tmp_path):
     reviewer.review.return_value = Review(
         decision="inattentive", confidence=0.95, reason="Visible orientation away"
     )
-    settings = Settings(data_dir=tmp_path, review_interval_s=0.01, event_cooldown_s=30)
+    settings = Settings(data_dir=tmp_path, review_interval_s=0.01, event_cooldown_s=30, flag_duration_s=0)
     pipeline = Pipeline(settings, Mock(), extractor, model, reviewer, Mock(), store, "baseline")
     yield pipeline, store, reviewer, extractor
     pipeline.close()
@@ -97,6 +98,23 @@ def test_unflagged_local_prediction_never_calls_gemini(setup):
     drain(pipeline)
     reviewer.review.assert_not_called()
     assert store.list() == []
+
+
+@pytest.mark.parametrize("flagged,score,label", [(True, 0.92, "DISTRACTED"), (False, 0.1, "ON TASK")])
+def test_console_logs_local_prediction_before_review(setup, caplog, flagged, score, label):
+    pipeline, _, reviewer, _ = setup
+    # The prediction is logged even while the duration gate suppresses Gemini review.
+    pipeline.settings = pipeline.settings.model_copy(update={"flag_duration_s": 5})
+    pipeline.flag_gate.duration_s = 5
+    pipeline.model.predict.return_value = Prediction(flagged, score, "test_model")
+    with caplog.at_level(logging.INFO, logger="stationwatch.pipeline"):
+        pipeline.offer_sample(packet())
+        drain(pipeline)
+    assert f"Local model: {label}" in caplog.text
+    assert f"distraction_score={score:.3f}" in caplog.text
+    assert "threshold=0.800" in caplog.text
+    assert "sustained=0.0s" in caplog.text
+    reviewer.review.assert_not_called()
 
 
 def test_missing_pose_is_unknown_and_not_reviewed(setup):

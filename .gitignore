@@ -207,6 +207,7 @@ tempCodeRunnerFile.py
 
 # Local workstation footage, training samples, and downloaded/trained model artifacts
 data/
+clips/
 models/
 config.json
 .venv*/
@@ -224,3 +225,5 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+.DS_Store

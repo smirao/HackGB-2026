@@ -16,7 +16,8 @@ from stationwatch.storage import EventStore
 from stationwatch.training import train
 
 
-def test_training_holds_out_groups_and_model_loads(tmp_path):
+@pytest.mark.parametrize("algorithm", ["random-forest", "logistic"])
+def test_training_holds_out_groups_and_model_loads(tmp_path, algorithm):
     pytest.importorskip("sklearn")
     path = tmp_path / "features.csv"
     with path.open("w", newline="") as handle:
@@ -29,12 +30,35 @@ def test_training_holds_out_groups_and_model_loads(tmp_path):
                 values = [90, 130 if label else 10, 0.4, 0.5, 1, 0.8, 0.5, 3]
                 writer.writerow(dict(zip(FEATURE_NAMES, values), label=label, group=f"worker-{group}"))
     output = tmp_path / "classifier.joblib"
-    train(path, output)
+    train(path, output, algorithm=algorithm, threshold=0.8)
     report = json.loads(output.with_suffix(".report.json").read_text())
     assert not set(report["training_groups"]) & set(report["evaluation_groups"])
+    assert report["algorithm"] == algorithm
+    assert report["runtime_threshold"] == 0.8
+    assert "report_at_runtime_threshold" in report
     model = TrainedModel(Settings(classifier_path=output))
     assert model.predict(Features(90, 130, 0.4, 0.5, 1, 0.8, 0.5, 3)).flagged
     assert not model.predict(Features(90, 10, 0.4, 0.5, 1, 0.8, 0.5, 3)).flagged
+
+
+def test_forest_learns_orientation_and_dwell_together(tmp_path):
+    pytest.importorskip("sklearn")
+    path = tmp_path / "interactions.csv"
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=FEATURE_NAMES + ["label", "group"])
+        writer.writeheader()
+        # A contract fixture, not an estimate of accuracy: only sustained orientation away is positive.
+        for group in range(8):
+            for _ in range(5):
+                for head, dwell, label in [(10, 0.5, 0), (10, 5, 0), (130, 0.5, 0), (130, 5, 1)]:
+                    values = [90, head, 0.4, 0.5, 1, 0.8, 0.5, dwell]
+                    writer.writerow(dict(zip(FEATURE_NAMES, values), label=label, group=f"worker-{group}"))
+    output = tmp_path / "interactions.joblib"
+    train(path, output)
+    model = TrainedModel(Settings(classifier_path=output))
+    assert model.predict(Features(90, 130, 0.4, 0.5, 1, 0.8, 0.5, 5)).flagged
+    assert not model.predict(Features(90, 130, 0.4, 0.5, 1, 0.8, 0.5, 0.5)).flagged
+    assert not model.predict(Features(90, 10, 0.4, 0.5, 1, 0.8, 0.5, 5)).flagged
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg is not installed")
