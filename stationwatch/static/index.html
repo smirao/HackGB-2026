@@ -517,7 +517,8 @@
       const $ = (id) => document.getElementById(id);
       let events = [],
         selected = null,
-        polling = false;
+        polling = false,
+        reviewRevision = 0;
       const esc = (value) =>
         String(value).replace(
           /[&<>"']/g,
@@ -596,6 +597,19 @@
             : "AWAITING REVIEW";
         }
       }
+      function syncSelection() {
+        const list = filtered();
+        if (list.some((e) => e.id === selected)) {
+          syncReviewState();
+        } else if (list.length) {
+          selectEvent(list[0].id);
+        } else {
+          selected = null;
+          $("detail-badge").textContent = "SELECT AN ALERT";
+          $("detail").innerHTML =
+            '<div class="empty">Select an alert to inspect its snapshot,<br>video, and recorded measurements.</div>';
+        }
+      }
       function selectEvent(id) {
         const e = events.find((v) => v.id === id);
         if (!e) return;
@@ -611,11 +625,16 @@
             await api(`/api/events/${encodeURIComponent(e.id)}/reviewed`, {
               method: "POST",
             });
+            reviewRevision += 1;
             const current = events.find((v) => v.id === e.id);
-            if (current) current.reviewed = true;
+            if (current && !current.reviewed) {
+              current.reviewed = true;
+              $("pending").textContent = Math.max(0, Number($("pending").textContent) - 1);
+              $("reviewed-count").textContent = Number($("reviewed-count").textContent) + 1;
+            }
             e.reviewed = true;
             renderEvents();
-            syncReviewState();
+            syncSelection();
             refresh();
           } catch (err) {
             showError(err.message);
@@ -663,11 +682,14 @@
       async function refresh() {
         if (polling) return;
         polling = true;
+        const revision = reviewRevision;
         try {
           const [status, list] = await Promise.all([
             api("/api/status"),
             api("/api/events"),
           ]);
+          // A poll started before a review must not restore the old unreviewed state.
+          if (revision !== reviewRevision) return;
           events = list;
           $("mode").textContent =
             status.mode === "demo"
@@ -701,8 +723,7 @@
             $("station-filter").value = currentStation;
           $("error").classList.add("hidden");
           renderEvents();
-          syncReviewState();
-          if (!selected && filtered().length) selectEvent(filtered()[0].id);
+          syncSelection();
         } catch (err) {
           showError(err.message);
         } finally {
@@ -712,12 +733,7 @@
       for (const id of ["review-filter", "station-filter"])
         $(id).onchange = () => {
           renderEvents();
-          if (!filtered().some((e) => e.id === selected)) {
-            selected = null;
-            $("detail-badge").textContent = "SELECT AN ALERT";
-            $("detail").innerHTML =
-              '<div class="empty">Select an alert to inspect its snapshot,<br>video, and recorded measurements.</div>';
-          }
+          syncSelection();
         };
       $("login").addEventListener("cancel", (e) => e.preventDefault());
       $("login-form").onsubmit = async (e) => {
