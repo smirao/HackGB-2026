@@ -1,8 +1,10 @@
 import asyncio
 import hmac
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
@@ -10,7 +12,16 @@ from pydantic import BaseModel
 from .storage import DatabaseUnavailable
 
 
-def create_app(pipeline, store, dashboard_token=None, uploader=None):
+def create_app(pipeline=None, store=None, dashboard_token=None, uploader=None):
+    if store is None:
+        from .postgres import PostgresEventStore
+
+        # Local runs use the project .env; deployed environment values take precedence.
+        load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
+        store = PostgresEventStore.from_env()
+        if dashboard_token is None:
+            dashboard_token = os.environ.get("DASHBOARD_TOKEN")
+
     @asynccontextmanager
     async def lifespan(app):
         if pipeline is not None:

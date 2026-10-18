@@ -12,6 +12,52 @@ from stationwatch.app import create_app
 from stationwatch.postgres import PostgresEventStore
 
 
+@pytest.mark.parametrize("exported_settings", [False, True])
+def test_default_app_loads_project_dotenv_and_reads_postgres(tmp_path, monkeypatch, exported_settings):
+    import stationwatch.app as app_module
+
+    for name in (
+        "PGUSER", "PGDATABASE", "PGHOST", "PGPORT", "PGSSLMODE", "PGPASSWORD",
+        "TIMESCALE_SERVICE_URL", "DASHBOARD_TOKEN",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    (tmp_path / ".env").write_text(
+        "PGUSER=dotenv-user\nPGDATABASE=alerts\nPGHOST=database.example\n"
+        "PGPORT=5432\nPGSSLMODE=require\nPGPASSWORD=dotenv-password\n"
+        "DASHBOARD_TOKEN=dotenv-token\n"
+    )
+    monkeypatch.setattr(app_module, "__file__", str(tmp_path / "stationwatch" / "app.py"))
+    monkeypatch.chdir(tmp_path.parent)
+    if exported_settings:
+        monkeypatch.setenv("PGUSER", "exported-user")
+        monkeypatch.setenv("DASHBOARD_TOKEN", "exported-token")
+
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+    connection.execute.return_value.fetchall.return_value = [
+        {"id": "db-alert", "payload": {"station_id": "press-01"}, "reviewed": False}
+    ]
+    connection.execute.return_value.fetchone.return_value = {"total": 1, "pending": 1, "stations": 1}
+    connect = Mock(return_value=connection)
+    monkeypatch.setattr(psycopg, "connect", connect)
+
+    with TestClient(create_app()) as client:
+        assert client.get("/healthz").status_code == 200
+        connect.assert_not_called()
+        assert client.get("/api/events").status_code == 401
+        token = "exported-token" if exported_settings else "dotenv-token"
+        assert client.post("/api/login", json={"token": token}).status_code == 200
+        assert client.get("/api/events").json() == [
+            {"id": "db-alert", "station_id": "press-01", "reviewed": False}
+        ]
+        assert client.get("/api/status").json()["events"] == {
+            "total": 1, "pending": 1, "reviewed": 0, "stations": 1,
+        }
+    assert connect.call_args.kwargs["user"] == ("exported-user" if exported_settings else "dotenv-user")
+    assert connect.call_args.kwargs["dbname"] == "alerts"
+    assert connect.call_args.kwargs["password"] == "dotenv-password"
+
+
 def test_health_is_public_and_never_calls_database():
     store = Mock()
     store.counts.side_effect = AssertionError("liveness must not query the database")

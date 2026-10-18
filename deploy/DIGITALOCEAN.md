@@ -51,6 +51,9 @@ duplicate injected values manually. Keep all six existing PG bindings and the
 Timescale URI if already provided. Psycopg/libpq also honors standard PostgreSQL
 environment variables, e.g. `PGSSLROOTCERT` if your provider requires a CA file.
 No `GEMINI_API_KEY`, `MONGODB_URI`, JSON config, model files, or camera is required.
+For local runs, the app also loads these settings from the repository-root `.env`
+file. Exported environment variables take precedence over `.env` values. Run
+`.venv/bin/python -m stationwatch.hub` and open http://127.0.0.1:8080.
 Python's temporary-directory selection also honors `TMPDIR`, `TEMP`, and `TMP`;
 these are optional OS settings and do not need App Platform values.
 

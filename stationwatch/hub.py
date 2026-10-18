@@ -4,15 +4,10 @@ import logging
 import os
 
 from .app import create_app
-from .postgres import PostgresEventStore
 
 # Store construction does not connect to the database. /healthz remains available
 # during an outage; data endpoints report the existing sanitized HTTP 503 response.
-app = create_app(
-    pipeline=None,
-    store=PostgresEventStore.from_env(),
-    dashboard_token=os.environ.get("DASHBOARD_TOKEN"),
-)
+app = create_app()
 
 
 def main():
