@@ -84,15 +84,15 @@ python pi_agent.py --source 0 \
   --station-id workbench-01 --station-name "Workbench 01"
 ```
 
-**Existing Flask camera streamer:** if you saved the supplied camera code as
-`camera_stream.py`, activate the same virtual environment in a separate terminal
-and start the streamer:
+**Camera streamer for browser viewing:** the repository includes
+[`camera_stream.py`](camera_stream.py). Activate the same virtual environment
+in a separate terminal and start it:
 
 ```sh
 cd ~/HackGB-2026
 source .venv/bin/activate
-python -m pip install flask
-python camera_stream.py --camera 0 --port 5000
+python -m pip install -e '.[camera]'
+python camera_stream.py --camera 0 --host 0.0.0.0 --port 5000
 ```
 
 Leave that terminal running. In the agent's terminal, run:
@@ -104,6 +104,11 @@ python pi_agent.py --source http://127.0.0.1:5000/video_feed
 Use `/video_feed`, not the streamer's HTML root page. Replace `127.0.0.1` if the
 streamer runs on another device. In this mode, the streamer owns the camera and
 the agent reads its HTTP feed; browser viewers can continue using the Flask page.
+From a laptop connected to the same Tailscale network, open
+`http://<pi-tailscale-ip>:5000/` to watch the feed. Run `tailscale ip -4` on the
+Pi to find that address. Keep both the streamer and the agent running in their
+respective terminals. If the agent reports `Connection refused`, check that the
+streamer is running on the same Pi and port.
 
 #### 5. View alerts, stop, and restart
 

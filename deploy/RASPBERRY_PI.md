@@ -2,7 +2,7 @@
 
 The entrypoint is `pi_agent.py` (also `python -m stationwatch.pi_agent`). It runs
 without a web server or a trained local model. It captures a live USB camera or
-the MJPEG `/video_feed` endpoint from your Flask camera script.
+the MJPEG `/video_feed` endpoint from the included `camera_stream.py`.
 
 ## Install and configure
 
@@ -43,9 +43,19 @@ If the task and station are set in `.env`, only `--source 0` is needed. Use
 This process owns the USB camera, so stop your Flask streamer before selecting
 the same camera directly.
 
-## Run with your existing Flask camera streamer
+## Run with the included Flask camera streamer
 
-Start your existing `camera_stream.py`, then run:
+In one terminal, start the included streamer (Flask is installed by the `camera` extra):
+
+```sh
+.venv/bin/python -m pip install -e '.[camera]'
+.venv/bin/python camera_stream.py --camera 0 --host 0.0.0.0 --port 5000
+```
+
+From a laptop on the same Tailscale network, open `http://<pi-tailscale-ip>:5000/`.
+Find the Pi's address by running `tailscale ip -4` on it.
+
+Leave the streamer running and start the agent in another terminal:
 
 ```sh
 .venv/bin/python pi_agent.py \
