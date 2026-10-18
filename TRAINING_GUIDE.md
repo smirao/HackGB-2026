@@ -1,6 +1,6 @@
 # Train from labeled video, then run on the Pi
 
-Use **`train_model.py --videos PATH`** to import and train from your paired behavior videos in one command. Use **`training_workflow.py`** for recording, browser annotation, individual extraction/training steps, and held-out evaluation. Run all commands from the project directory. No labeled worker data or trained task-behavior classifier is supplied.
+Use **`training_workflow.py annotate --videos clips`** to import numbered clips and annotate their behavior intervals. Use **`train_model.py --annotated`** to refresh extraction and train from those saved annotations. `training_workflow.py` also provides recording, individual extraction/training steps, and held-out evaluation. Run all commands from the project directory. No labeled worker data or trained task-behavior classifier is supplied.
 
 ## What we are training
 
@@ -96,7 +96,47 @@ Use a harmless mock task for staged demonstrations. Keep the camera fixed. Avoid
 
 Image training requires at least **three independent groups** and 20 labeled frames as a startup check. That minimum does not imply useful accuracy. By default groups are people, so an entire person's footage is held out together. If you only have one participant, collect at least three genuinely separate sessions and use `--group-by session` later. That evaluates new sessions of a known person, not generalization to new workers. The legacy pose trainer retains its four-group minimum.
 
-### Your six videos: three people, two behaviors each
+### Numbered mixed-behavior videos
+
+Your current layout is:
+
+```text
+clips/
+  aaron1.MP4
+  aaron2.MP4
+  aaron3.mp4
+  hunter1.MP4
+  hunter2.MP4
+  hunter3.mp4
+  owen1.MP4
+  owen2.MP4
+```
+
+The prefix identifies the person; trailing digits identify the clip. `aaron1`, `aaron2`, and `aaron3` all belong to person `aaron`. The number does not assign a behavior. Any number of clips per person is supported, including multi-digit numbers and `.MP4`/`.mp4` extensions. Use the same name prefix consistently, and use a new number for new footage.
+
+With the existing initialized dataset, start annotation:
+
+```sh
+python training_workflow.py annotate --videos clips
+```
+
+This imports new numbered videos with no labels, reuses videos already in the dataset, and displays the current source filenames in numerical order. If you renamed an existing video, its content hash links it to the existing clip and preserves every saved annotation. Internal clip IDs may retain earlier names so saved labels and references continue to work. Existing whole-clip labels are retained too; remove them in the annotator when replacing them with mixed-behavior intervals.
+
+To import without starting the annotation server:
+
+```sh
+python training_workflow.py import-clips --videos clips
+```
+
+After saving each clip's intervals and stopping the annotator:
+
+```sh
+python train_model.py --annotated --holdout owen
+```
+
+All Owen clips stay together in evaluation. `python train_model.py --videos clips --holdout owen` can also import/reuse numbered clips and then train from saved intervals; newly imported clips remain excluded until annotated. Filenames never assign labels to numbered clips. The original source files stay unchanged.
+
+### Earlier paired behavior videos (optional)
 
 The `clips/` folder can contain the six files directly, using the same name for each person's pair. Both `.mp4` and `.MP4` extensions work:
 

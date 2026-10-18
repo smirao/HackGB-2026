@@ -10,7 +10,7 @@ from stationwatch.dataset import (
     dataset_settings,
     download_model,
     extract,
-    import_pairs,
+    import_training_videos,
     initialize,
     train_dataset,
 )
@@ -22,7 +22,7 @@ def main(argv=None):
     source.add_argument(
         "--annotated", action="store_true", help="Train from saved annotator intervals in --dataset; no video import"
     )
-    source.add_argument("--videos", type=Path, help="Flat name_task/name_distracted MP4s or one folder per person")
+    source.add_argument("--videos", type=Path, help="Numbered name1.mp4/name2.mp4 clips or legacy behavior pairs")
     source.add_argument("--csv", type=Path, help="Use the legacy pose-feature trainer instead")
     parser.add_argument("--output", type=Path, help="Default: models/attention_image.json (or attention.joblib)")
     parser.add_argument("--threshold", type=float, default=0.8)
@@ -56,14 +56,14 @@ def main(argv=None):
         if args.annotated and not (args.dataset / "config.json").is_file():
             raise ValueError("Initialize/import videos with training_workflow.py, then save annotator intervals first")
         if args.videos is not None and not args.videos.is_dir():
-            raise ValueError("--videos must contain name_task.mp4/name_distracted.mp4 pairs or person folders")
+            raise ValueError("--videos must contain numbered name1.mp4/name2.mp4 clips or legacy behavior pairs")
         if not (args.dataset / "config.json").exists():
             initialize(args.dataset, args.config, backend="image")
         settings = dataset_settings(args.dataset)
         if settings.analysis_backend != "image":
             raise ValueError("Choose a separate --dataset for MobileNet image training; this dataset uses pose")
         if args.videos is not None:
-            import_pairs(args.dataset, args.videos, args.session, args.trim_start_s, args.trim_end_s)
+            import_training_videos(args.dataset, args.videos, args.session, args.trim_start_s, args.trim_end_s)
         people = {info["person"] for info in clips(args.dataset)}
         if len(people) < 3:
             raise ValueError("Provide annotated footage from at least three people, with both labels in each split")

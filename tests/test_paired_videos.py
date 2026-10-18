@@ -13,7 +13,9 @@ from stationwatch.config import Settings
 from stationwatch.dataset import (
     clips,
     extract,
+    import_numbered,
     import_pairs,
+    import_video,
     initialize,
     labels_for,
     main,
@@ -47,6 +49,90 @@ def paired_dataset(tmp_path, request):
                 recorder.close()
             (directory / "recordings" / recorder.segment).rename(directory / (name + ".mp4"))
     return root, videos
+
+
+@pytest.fixture
+def numbered_videos(paired_dataset, tmp_path):
+    root, paired = paired_dataset
+    videos = tmp_path / "numbered"
+    videos.mkdir()
+    for person, old in zip(["aaron", "hunter", "owen", "john_smith"], sorted(paired.iterdir())):
+        for number, behavior in [(1, "on_task"), (10, "distracted")]:
+            shutil.copyfile(old / f"{behavior}.mp4", videos / f"{person}{number}.MP4")
+    return root, videos
+
+
+def test_numbered_import_annotation_and_training_group_by_name(numbered_videos, tmp_path, monkeypatch):
+    pytest.importorskip("sklearn")
+    from train_model import main as train_main
+
+    root, videos = numbered_videos
+    encoder = tmp_path / "encoder.tflite"
+    encoder.touch()
+    settings = Settings(analysis_backend="image", width=160, height=120, fps=4, image_model_path=encoder)
+    write_json(root / "config.json", settings.model_dump(mode="json"))
+    monkeypatch.setattr(sys, "argv", ["training_workflow.py", "--dataset", str(root),
+                                   "annotate", "--videos", str(videos)])
+    serve = Mock()
+    monkeypatch.setattr("uvicorn.run", serve)
+    main()
+    assert serve.call_count == 1
+    entries = clips(root)
+    assert len(entries) == 8
+    assert {info["person"] for info in entries} == {"aaron", "hunter", "owen", "john_smith"}
+    assert all(labels_for(root, info) == [] for info in entries)
+    intervals = [{"start_s": 0, "end_s": 1.5, "label": 0}, {"start_s": 1.5, "end_s": 3, "label": 1}]
+    with TestClient(serve.call_args.args[0]) as client:
+        listed = client.get("/api/clips").json()
+        assert {info["source_name"] for info in listed} == {path.name for path in videos.iterdir()}
+        for info in entries:
+            assert client.post(f"/api/clips/{info['id']}/labels", json={"intervals": intervals}).status_code == 200
+    monkeypatch.setattr("stationwatch.image_training.image_context", lambda _: {"fixture": "encoder"})
+    extractor = Mock()
+    extractor.extract.side_effect = lambda image, t: np.full(EMBEDDING_SIZE, 1 if t >= 1.5 else -1)
+    monkeypatch.setattr("stationwatch.image_training.ImageExtractor", lambda _: extractor)
+    output = tmp_path / "model.json"
+    report = train_main(["--videos", str(videos), "--dataset", str(root), "--holdout", "owen", "--output", str(output)])
+    assert report["evaluation_groups"] == ["owen"]
+    assert report["evaluation_clips"] == ["owen1", "owen10"]
+    assert report["training_groups"] == ["aaron", "hunter", "john_smith"]
+    assert report["runtime_confusion_matrix_labels_0_1"] == [[6, 0], [0, 6]]
+    assert len(clips(root)) == 8
+    assert all(labels_for(root, info) == intervals for info in clips(root))
+
+
+def test_renamed_numbered_video_preserves_existing_clip_and_labels(numbered_videos):
+    root, videos = numbered_videos
+    old_id = "aaron-s01-on-task"
+    import_video(root, videos / "aaron1.MP4", old_id, "aaron", "s01")
+    path = root / "labels" / (old_id + ".json")
+    labels = {"intervals": [{"start_s": 0.5, "end_s": 1, "label": 1}]}
+    write_json(path, labels)
+    saved = path.read_bytes()
+    assert import_numbered(root, videos) == {
+        "imported": 7, "reused": 1, "people": ["aaron", "hunter", "john_smith", "owen"]
+    }
+    assert path.read_bytes() == saved
+    assert not (root / "clips/aaron1.json").exists()
+    assert next(info for info in clips(root) if info["id"] == old_id)["source_name"] == "aaron1.MP4"
+    assert import_numbered(root, videos)["reused"] == 8
+    assert len(clips(root)) == 8 and path.read_bytes() == saved
+
+
+@pytest.mark.parametrize("problem", ["invalid_name", "duplicate", "changed"])
+def test_numbered_batch_preflight_preserves_dataset_on_error(numbered_videos, problem):
+    root, videos = numbered_videos
+    if problem == "changed":
+        import_numbered(root, videos)
+        shutil.copyfile(videos / "aaron10.MP4", videos / "aaron1.MP4")
+    else:
+        name = "bad.mp4" if problem == "invalid_name" else "another1.mp4"
+        shutil.copyfile(videos / "aaron1.MP4", videos / name)
+    before = {path: path.read_bytes() for folder in ["clips", "labels"] for path in (root / folder).glob("*.json")}
+    with pytest.raises(ValueError):
+        import_numbered(root, videos)
+    after = {path: path.read_bytes() for folder in ["clips", "labels"] for path in (root / folder).glob("*.json")}
+    assert before == after
 
 
 @pytest.mark.parametrize("paired_dataset", [3], indirect=True)
@@ -153,7 +239,7 @@ def test_annotated_training_uses_browser_intervals_and_refreshes_old_filename_la
     saved = {path.name: path.read_bytes() for path in (root / "labels").glob("*.json")}
     # Imported dataset recordings are sufficient; original source files can be absent.
     shutil.rmtree(videos)
-    monkeypatch.setattr("train_model.import_pairs", Mock(side_effect=AssertionError("Must not import pairs")))
+    monkeypatch.setattr("train_model.import_training_videos", Mock(side_effect=AssertionError("Must not import videos")))
     output = tmp_path / "model.json"
     report = train_main(["--annotated", "--dataset", str(root), "--holdout", "p03", "--output", str(output)])
     assert report["training_groups"] == ["p01", "p02"]

@@ -39,7 +39,10 @@ def extract_images(root, group_by="person"):
             intervals, timeline = labels_for(root, info), frame_times(root, info)
             capture = cv2.VideoCapture(str(safe_path(root, info["video"])))
             next_sample, count = 0.0, 0
-            summary = {"id": info["id"], "labels": {"0": 0, "1": 0}, "unlabeled_samples": 0}
+            summary = {
+                "id": info["id"], "source_name": info.get("source_name", info["id"]),
+                "labels": {"0": 0, "1": 0}, "unlabeled_samples": 0,
+            }
             try:
                 for captured_s, video_s in timeline:
                     ok, image = capture.read()
@@ -71,7 +74,7 @@ def extract_images(root, group_by="person"):
                 capture.release()
             summaries.append({**summary, "samples": count})
             print(
-                f"{info['id']}: {count} labeled images "
+                f"{summary['source_name']}: {count} labeled images "
                 f"(on task={summary['labels']['0']}, distracted={summary['labels']['1']}, "
                 f"unlabeled/skipped={summary['unlabeled_samples']})"
             )

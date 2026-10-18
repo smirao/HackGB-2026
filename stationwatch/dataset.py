@@ -260,6 +260,76 @@ def import_video(root, source, clip_id, person, session):
     return save_clip(root, clip_id, person, session, destination)
 
 
+def import_numbered(root, videos, session="s01"):
+    """Import name1.mp4/name2.mp4 without assigning behavior labels.
+
+    Match renamed footage by content to retain existing clip IDs and annotations.
+    """
+    dataset_settings(root)
+    identifier(session)
+    if not videos.is_dir():
+        raise ValueError("--videos must be a directory containing name1.mp4, name2.mp4, etc.")
+    sources = sorted(path for path in videos.iterdir() if path.is_file() and path.suffix.lower() == ".mp4")
+    if not sources:
+        raise ValueError("No MP4 videos found in --videos")
+    existing = clips(root)
+    by_id = {info["id"]: info for info in existing}
+    by_hash = {}
+    for info in existing:
+        by_hash.setdefault(file_hash(safe_path(root, info["video"])), []).append(info)
+    plans, seen_ids, seen_hashes = [], set(), set()
+    # Validate the entire batch before changing metadata or copying recordings.
+    for source in sources:
+        match = re.fullmatch(r"(.+?)([0-9]+)", source.stem)
+        if not match:
+            raise ValueError(f"{source.name}: expected a person's name followed by a clip number, e.g. aaron1.mp4")
+        person = identifier(match[1].rstrip("_- ").lower())
+        clip_id = identifier(source.stem.lower())
+        digest = file_hash(source)
+        if clip_id in seen_ids or digest in seen_hashes:
+            raise ValueError(f"{source.name}: duplicate clip name or video content in this batch")
+        seen_ids.add(clip_id)
+        seen_hashes.add(digest)
+        probe_video(source)
+        matches = by_hash.get(digest, [])
+        if clip_id in by_id:
+            info = by_id[clip_id]
+            if info not in matches or info["person"] != person or info["session"] != session:
+                raise ValueError(f"{source.name}: clip ID already exists with different footage/person/session")
+        elif matches:
+            if len(matches) != 1 or matches[0]["person"] != person:
+                raise ValueError(f"{source.name}: video already belongs to another or ambiguous person/clip")
+            info = matches[0]
+        else:
+            info = None
+        plans.append((source, clip_id, person, info))
+    imported = reused = 0
+    for source, clip_id, person, info in plans:
+        if info is None:
+            info = import_video(root, source, clip_id, person, session)
+            imported += 1
+        else:
+            reused += 1
+            print(f"Keeping {source.name}: matched {info['id']}; existing annotations preserved.")
+        if info.get("source_name") != source.name:
+            write_json(root / "clips" / (info["id"] + ".json"), {**info, "source_name": source.name})
+    print(f"Imported {imported} unlabeled clips; reused {reused} clips. Save intervals in annotate before training.")
+    return {"imported": imported, "reused": reused, "people": sorted({plan[2] for plan in plans})}
+
+
+def import_training_videos(root, videos, session="s01", trim_start_s=0, trim_end_s=0):
+    """Accept numbered mixed-behavior clips or the earlier explicitly labeled pairs."""
+    numbered = videos.is_dir() and any(
+        path.is_file() and path.suffix.lower() == ".mp4" and path.stem[-1:].isdigit()
+        for path in videos.iterdir()
+    )
+    if numbered:
+        if trim_start_s or trim_end_s:
+            raise ValueError("Numbered clips use saved annotator intervals; set interval boundaries in annotate")
+        return import_numbered(root, videos, session)
+    return import_pairs(root, videos, session, trim_start_s, trim_end_s)
+
+
 def behavior_intervals(duration, behavior, trim_start_s=0, trim_end_s=0):
     if behavior not in BEHAVIOR_LABELS:
         raise ValueError("Choose behavior on-task or distracted")
@@ -671,6 +741,9 @@ def main():
     setup.add_argument("--backend", choices=["image", "pose"], default="image")
     setup.add_argument("--download-model", action="store_true")
     commands.add_parser("download-model", help="Download the selected pretrained image or pose encoder")
+    numbered = commands.add_parser("import-clips", help="Import name1.mp4/name2.mp4 for interval annotation")
+    numbered.add_argument("--videos", type=Path, default=Path("clips"))
+    numbered.add_argument("--session", default="s01")
     paired = commands.add_parser(
         "import-pairs", help="Import name_task.mp4/name_distracted.mp4 or person-folder pairs with labels"
     )
@@ -697,6 +770,8 @@ def main():
     commands.add_parser("list", help="List clips and labeled intervals")
     annotate = commands.add_parser("annotate", help="Open a local video annotation/calibration server")
     annotate.add_argument("--port", type=int, default=8002)
+    annotate.add_argument("--videos", type=Path, help="Import/reuse numbered clips before opening the annotator")
+    annotate.add_argument("--session", default="s01")
     extraction = commands.add_parser("extract", help="Extract visual features from human-labeled video")
     extraction.add_argument("--group-by", choices=["person", "session"], default="person")
     fit = commands.add_parser("train", help="Train, evaluate, and export model plus matching Pi config")
@@ -727,11 +802,13 @@ def main():
                 label_behavior(root, info, args.behavior)
         elif args.command == "import-pairs":
             import_pairs(root, args.videos, args.session, args.trim_start_s, args.trim_end_s)
+        elif args.command == "import-clips":
+            import_numbered(root, args.videos, args.session)
         elif args.command == "list":
             dataset_settings(root)
             for info in clips(root):
                 print(
-                    f"{info['id']}: person={info['person']}, session={info['session']}, "
+                    f"{info.get('source_name', info['id'])}: person={info['person']}, session={info['session']}, "
                     f"{info['duration_s']:.1f}s, intervals={len(labels_for(root, info))}"
                 )
         elif args.command == "annotate":
@@ -740,6 +817,8 @@ def main():
             from .annotation import create_annotation_app
 
             dataset_settings(root)
+            if args.videos is not None:
+                import_numbered(root, args.videos, args.session)
             print(f"Annotation tool: http://127.0.0.1:{args.port}. Stop with Ctrl-C before extracting.")
             uvicorn.run(create_annotation_app(root), host="127.0.0.1", port=args.port, access_log=False)
         elif args.command == "extract":

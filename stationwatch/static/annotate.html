@@ -386,7 +386,7 @@
           draw();
           message(
             "Loaded " +
-              id +
+              (recordings.find((c) => c.id === id)?.source_name || id) +
               (setup?.analysis_backend === "image"
                 ? ". Image mode: save labels, then run extract."
                 : ". Save calibration before extracting features."),
@@ -531,6 +531,9 @@
             api("/api/calibration"),
             api("/api/setup"),
           ]);
+          recordings.sort((a, b) =>
+            (a.source_name || a.id).localeCompare(b.source_name || b.id, undefined, { numeric: true }),
+          );
           if (setup.analysis_backend === "image") {
             $("calibration-controls").hidden = true;
             $("calibration-controls").style.display = "none";
@@ -542,7 +545,7 @@
             ? recordings
                 .map(
                   (c) =>
-                    `<option value="${esc(c.id)}">${esc(c.id)} · ${esc(c.person)} / ${esc(c.session)} · ${c.duration_s.toFixed(1)}s</option>`,
+                    `<option value="${esc(c.id)}">${esc(c.source_name || c.id)} · ${esc(c.person)} / ${esc(c.session)} · ${c.duration_s.toFixed(1)}s</option>`,
                 )
                 .join("")
             : '<option value="">No clips. Use record or import-video first.</option>';

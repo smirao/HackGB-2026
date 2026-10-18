@@ -12,7 +12,17 @@ Use **[training_workflow.py](training_workflow.py)** and follow **[TRAINING_GUID
 - **[stationwatch/image_model.py](stationwatch/image_model.py)** runs a verified pretrained MobileNetV3 Small image encoder and the learned classifier on the Pi. The encoder is generic visual feature extraction, not an off-the-shelf attention detector.
 - **[stationwatch/temporal.py](stationwatch/temporal.py)** requires sustained local flags using capture timestamps. The five-second timer is independent of training labels.
 - **[stationwatch/pipeline.py](stationwatch/pipeline.py)** owns capture, bounded inference/review workers, and saving confirmed evidence.
-- **[train_model.py](train_model.py)** trains directly from saved mixed-behavior annotations with `--annotated --holdout owen`, refreshing extraction without importing or changing labels. It also imports `clips/name_task.mp4` + `clips/name_distracted.mp4` (or person-folder pairs) with `--videos`, and retains the optional pose-feature trainer via `--csv`. Uppercase `.MP4` extensions work too. **[features.py](stationwatch/features.py)** runs MoveNet/MediaPipe and **[model.py](stationwatch/model.py)** scores those pose features.
+- **[train_model.py](train_model.py)** trains directly from saved mixed-behavior annotations with `--annotated --holdout owen`, refreshing extraction without importing or changing labels. With `--videos clips`, it imports numbered `aaron1.mp4`, `aaron2.mp4`, etc., grouping by person and preserving saved labels. Legacy behavior pairs and `--csv` pose training also work. Uppercase `.MP4` extensions work too. **[features.py](stationwatch/features.py)** runs MoveNet/MediaPipe and **[model.py](stationwatch/model.py)** scores those pose features.
+
+For numbered clips already in `clips/`, use the initialized dataset:
+
+```sh
+python training_workflow.py annotate --videos clips
+# Save interval labels in http://127.0.0.1:8002, then stop the annotator.
+python train_model.py --annotated --holdout owen
+```
+
+The number identifies a take, not a behavior. New videos start unlabeled. Reimporting renamed copies preserves existing annotations by matching video content.
 
 Image training starts here after installation and camera configuration:
 
