@@ -142,6 +142,31 @@ restarts. Run `deactivate` when you want to leave the virtual environment.
 See [the Pi setup guide](deploy/RASPBERRY_PI.md) for detailed retry and recording
 behavior, camera options, and an optional systemd service that starts at boot.
 
+#### Send a manual test alert
+
+With `camera_stream.py` running, open another terminal on the Pi and run:
+
+```sh
+cd ~/HackGB-2026
+source .venv/bin/activate
+python pi_agent.py --force-alert \
+  --source http://127.0.0.1:5000/video_feed \
+  --station-id workbench-01
+```
+
+This records about three seconds of camera footage, sends **one manual test
+alert** with its snapshot and video to PostgreSQL, then exits. It bypasses Jev,
+Gemini, and the five-second gate, so neither API key is required for this command.
+The dashboard shows **Manual test alert** and **AI review: Bypassed for test**.
+The event does not claim that either AI found off-task behavior.
+
+You can run this alongside the normal agent when both consume the HTTP stream.
+Use `--source 0` instead if the USB camera is free. Test uploads have their own
+local queue at `data/pi-<station-id>-manual-test/`. An upload failure returns a
+nonzero exit status and retains the evidence there. Running the command again
+retries queued tests and creates one new test alert. Normal monitoring continues
+to require AI confirmation.
+
 ### Classify a video feed with Jev
 
 ```bash

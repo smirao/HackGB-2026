@@ -90,9 +90,12 @@ class PostgresEventStore:
         return dict(row, reviewed=row["total"] - row["pending"])
 
     def publish_alert(self, event, snapshot):
-        if event.get("mode") == "demo" or not event.get("local", {}).get("flagged"):
+        manual_test = (event.get("test_alert") is True and event.get("alert_source") == "manual_test"
+                       and event.get("review_model") == "manual_test"
+                       and event.get("local", {}).get("source") == "manual_test")
+        if event.get("mode") == "demo" or (not manual_test and not event.get("local", {}).get("flagged")):
             raise ValueError("Only live, flagged events may be uploaded")
-        if event.get("review", {}).get("decision") != "inattentive":
+        if not manual_test and event.get("review", {}).get("decision") != "inattentive":
             raise ValueError("Only Gemini-confirmed events may be uploaded")
         content = snapshot.read_bytes()
         with self._connection() as connection:

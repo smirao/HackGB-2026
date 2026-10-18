@@ -98,6 +98,29 @@ assigned task, Jev decision/confidence/probabilities/model, Gemini reason and
 confidence/model, streak duration, a JPEG snapshot, recording name, and the
 encoded video offset. The existing dashboard can display and review them.
 
+## Force one test alert
+
+With the camera streamer running, use another Pi terminal:
+
+```sh
+.venv/bin/python pi_agent.py --force-alert \
+  --source http://127.0.0.1:5000/video_feed --station-id workbench-01
+```
+
+This captures a snapshot and about three seconds of video, uploads one alert,
+and exits. It bypasses both AI APIs and the duration gate; API keys and `--task`
+are optional for this command. PostgreSQL credentials are still required. The
+dashboard labels it **Manual test alert**, with **AI review: Bypassed for test**.
+Its payload contains `test_alert: true` and `alert_source: "manual_test"`, with no
+fabricated AI confirmation or confidence.
+
+Both this command and a running normal agent can use the shared HTTP feed.
+`--source 0` also works if the USB camera is free. The default test data directory
+is `data/pi-<station-id>-manual-test/`, separate from normal monitoring. A database
+failure leaves the evidence queued there and returns exit status 1. Rerunning
+the command retries queued tests and creates a new test alert. Normal monitoring
+keeps its existing AI gates.
+
 ## Uploads, recording, and restarts
 
 Confirmed alerts and snapshots are committed to a local SQLite outbox before

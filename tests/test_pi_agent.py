@@ -322,3 +322,130 @@ def test_no_database_traffic_until_confirmed_and_shutdown_flushes_queue(agent_se
     assert remote.mock_calls == []
     uploader.close(flush=True)
     remote.close.assert_called_once()
+
+
+def test_forced_alert_bypasses_models_and_uploads_honestly_labeled_evidence(agent_setup):
+    from stationwatch.pi_agent import send_test_alert
+
+    agent, local, reviewer, sample = agent_setup
+    sample = replace(sample, monotonic_s=time.monotonic())
+    remote = Mock()
+
+    def finish_clip():
+        (local.root / 'recordings' / sample.segment).write_bytes(b'recorded-test-video')
+
+    feed = SimpleNamespace(error=False, snapshot=lambda: sample, close=finish_clip)
+    status = asyncio.run(send_test_alert(agent.settings, local, remote, feed, record_seconds=0))
+    assert status == 0
+    reviewer.review.assert_not_called()
+    event = local.list()[0]
+    assert event['test_alert'] is True and event['alert_source'] == 'manual_test'
+    assert event['local'] == {'flagged': False, 'score': 0, 'source': 'manual_test'}
+    assert event['review']['decision'] == 'uncertain' and event['review']['confidence'] == 0
+    assert event['review_model'] == 'manual_test' and event['jev'] is None
+    assert event['features']['source'] == 'manual_test'
+    assert 'MANUAL TEST ALERT' in event['review']['reason']
+    payload = {key: value for key, value in event.items() if key != 'reviewed'}
+    remote.publish_alert.assert_called_once_with(payload, local.root / 'snapshots' / (event['id'] + '.jpg'))
+    remote.publish_clip.assert_called_once_with(payload, local.root / 'recordings' / sample.segment)
+    assert local.upload_counts() == {'pending': 0, 'failed': 0}
+
+
+@pytest.mark.parametrize('failure', ['alert', 'clip'])
+def test_forced_alert_upload_failure_is_durable_and_retried(agent_setup, failure, caplog):
+    from stationwatch.pi_agent import send_test_alert
+
+    agent, local, _, sample = agent_setup
+    sample = replace(sample, monotonic_s=time.monotonic())
+    clip = local.root / 'recordings' / sample.segment
+    feed = SimpleNamespace(error=False, snapshot=lambda: sample, close=lambda: clip.write_bytes(b'video'))
+    remote = Mock()
+    getattr(remote, 'publish_' + failure).side_effect = RuntimeError('secret-password-at-private-host')
+    assert asyncio.run(send_test_alert(agent.settings, local, remote, feed, record_seconds=0)) == 1
+    assert local.upload_counts() == {'pending': 1, 'failed': 1}
+    assert 'secret-password' not in caplog.text
+    assert 'remains queued' in caplog.text
+    restarted_remote = Mock()
+    EvidenceUploader(local, restarted_remote).run_once(now=time.time() + 6)
+    assert local.upload_counts() == {'pending': 0, 'failed': 0}
+    restarted_remote.publish_clip.assert_called_once()
+    if failure == 'clip':
+        restarted_remote.publish_alert.assert_not_called()
+    else:
+        restarted_remote.publish_alert.assert_called_once()
+
+
+@pytest.mark.parametrize('missing_marker', [None, 'test_alert', 'alert_source', 'review_model', 'source'])
+def test_postgres_requires_complete_manual_test_marker_to_bypass_ai(missing_marker, tmp_path, monkeypatch):
+    connection = Mock()
+    context = Mock(__enter__=Mock(return_value=connection), __exit__=Mock(return_value=False))
+    store = PostgresEventStore()
+    monkeypatch.setattr(store, '_connection', lambda: context)
+    event = {
+        'id': 'manual-test', 'captured_at': '2026-10-18T18:00:00Z', 'mode': 'image',
+        'test_alert': True, 'alert_source': 'manual_test', 'review_model': 'manual_test',
+        'local': {'flagged': False, 'source': 'manual_test'},
+        'review': {'decision': 'uncertain', 'confidence': 0},
+    }
+    if missing_marker == 'source':
+        event['local'].pop('source')
+    elif missing_marker:
+        event.pop(missing_marker)
+    snapshot = tmp_path / 'test.jpg'
+    snapshot.write_bytes(b'jpeg')
+    if missing_marker is None:
+        store.publish_alert(event, snapshot)
+        assert connection.execute.call_count == 2
+        assert connection.execute.call_args_list[0].args[1][2].obj['test_alert'] is True
+    else:
+        with pytest.raises(ValueError):
+            store.publish_alert(event, snapshot)
+        connection.execute.assert_not_called()
+
+
+def test_force_alert_cli_works_without_api_keys_while_normal_directory_is_locked(tmp_path, monkeypatch):
+    import fcntl
+
+    import stationwatch.pi_agent as module
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(module, 'load_dotenv', Mock())
+    monkeypatch.delenv('TYPESAFE_API_KEY', raising=False)
+    monkeypatch.delenv('GEMINI_API_KEY', raising=False)
+    monkeypatch.delenv('TASK_DESCRIPTION', raising=False)
+    for name in ('PGUSER', 'PGPASSWORD', 'PGDATABASE', 'PGHOST', 'PGPORT', 'PGSSLMODE'):
+        monkeypatch.setenv(name, 'test')
+    monkeypatch.setattr('sys.argv', [
+        'pi_agent.py', '--force-alert', '--source', 'http://127.0.0.1:5000/video_feed',
+        '--station-id', 'workbench-01',
+    ])
+    remote = Mock()
+    monkeypatch.setattr(module.PostgresEventStore, 'from_env', lambda: remote)
+    no_ai = Mock(side_effect=AssertionError('Test mode must not initialize or call AI clients'))
+    monkeypatch.setattr(module, 'GeminiReviewer', no_ai)
+    monkeypatch.setattr(module, 'PiAgent', no_ai)
+    monkeypatch.setattr(module, 'SegmentRecorder', Mock())
+
+    def create_feed(settings, recorder):
+        sample = Sample(b'jpeg', '2026-10-18T18:00:00Z', time.monotonic(), 0, 'clip.mp4', 0, 'test')
+        def close():
+            (settings.data_dir / 'recordings' / sample.segment).write_bytes(b'video')
+        return SimpleNamespace(error=False, start=lambda: None, snapshot=lambda: sample, close=close)
+
+    monkeypatch.setattr(module, 'CameraFeed', create_feed)
+    send_test = module.send_test_alert
+
+    async def fast_test(settings, store, remote, feed):
+        return await send_test(settings, store, remote, feed, record_seconds=0)
+
+    monkeypatch.setattr(module, 'send_test_alert', fast_test)
+    normal_dir = tmp_path / 'data' / 'pi-workbench-01'
+    normal_dir.mkdir(parents=True)
+    with (normal_dir / 'agent.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert module.main() == 0
+    no_ai.assert_not_called()
+    assert remote.publish_alert.call_count == 1
+    event = remote.publish_alert.call_args.args[0]
+    assert event['test_alert'] is True and event['task_description'] == 'Manual alert delivery test'
+    assert remote.publish_alert.call_args.args[1].parent.parent == Path('data/pi-workbench-01-manual-test')

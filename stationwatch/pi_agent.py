@@ -25,7 +25,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from .config import Settings
-from .gemini import GeminiReviewer
+from .gemini import GeminiReviewer, Review
 from .images import prepare_image
 from .jev import classify_jpeg
 from .postgres import PostgresEventStore
@@ -243,6 +243,60 @@ class PiAgent:
                     await self.review_task
 
 
+async def send_test_alert(settings, store, remote, feed, record_seconds=3):
+    """Capture one explicitly marked manual alert without calling either model."""
+    log.info("MANUAL TEST: recording camera evidence; Jev and Gemini are bypassed")
+    # Retry older manual tests from this separate outbox before creating a new one.
+    await asyncio.to_thread(EvidenceUploader(store, remote).run_once)
+    loop = asyncio.get_running_loop()
+    first_frame_deadline = loop.time() + 10
+    started = None
+    while True:
+        if feed.error:
+            raise RuntimeError("Camera/recording failed while creating the test alert")
+        sample = feed.snapshot()
+        if sample is not None and time.monotonic() - sample.monotonic_s <= 1.5:
+            if started is None:
+                started = loop.time()
+            if loop.time() - started >= record_seconds:
+                break
+        elif started is None and loop.time() >= first_frame_deadline:
+            raise RuntimeError("No camera frame arrived for the test alert")
+        elif started is not None and loop.time() - started > record_seconds + 10:
+            raise RuntimeError("Camera frames stopped while creating the test alert")
+        await asyncio.sleep(0.05)
+
+    event_id = uuid.uuid4().hex
+    event = make_event(
+        event_id, sample, settings, JevObservation(0, source="manual_test"),
+        JevPrediction(False, 0, "manual_test"),
+        Review(decision="uncertain", confidence=0.0,
+               reason="MANUAL TEST ALERT: operator forced delivery to test the dashboard. "
+                      "Jev and Gemini were bypassed; no off-task behavior was confirmed."),
+        "image", utc_now(),
+    )
+    event.update(test_alert=True, alert_source="manual_test", review_model="manual_test",
+                 task_description=settings.task_description, jev=None)
+    await asyncio.to_thread(store.add, event, sample.jpeg)
+    await asyncio.to_thread(feed.close)
+    if feed.error:
+        log.error("Manual test %s saved locally, but its video failed to finalize", event_id)
+        return 1
+
+    try:
+        await asyncio.to_thread(remote.publish_alert, event, store.root / "snapshots" / (event_id + ".jpg"))
+        store.upload_progress(event_id, alert_sent=True)
+        await asyncio.to_thread(remote.publish_clip, event, store.root / "recordings" / event["segment"])
+        store.upload_progress(event_id, clip_sent=True)
+    except Exception as exc:  # noqa: BLE001 — retain failed test uploads without exposing database credentials.
+        store.upload_progress(event_id, retry_at=time.time() + 5, error=type(exc).__name__)
+        log.error("Manual test %s remains queued in %s (%s); rerun --force-alert to retry",
+                  event_id, store.root, type(exc).__name__)
+        return 1
+    log.info("MANUAL TEST ALERT %s uploaded to PostgreSQL with snapshot and video", event_id)
+    return 0
+
+
 def main():
     load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
     parser = argparse.ArgumentParser(description=__doc__)
@@ -260,7 +314,11 @@ def main():
     parser.add_argument("--gemini-threshold", type=float, default=0.8)
     parser.add_argument("--cooldown", type=float, default=30, help="Minimum seconds between confirmed alerts")
     parser.add_argument("--max-in-flight", type=int, default=8)
+    parser.add_argument("--force-alert", action="store_true",
+                        help="Send one labeled manual test alert with camera evidence, bypass both AIs, and exit")
     args = parser.parse_args()
+    if args.force_alert and (not args.task or not args.task.strip()):
+        args.task = "Manual alert delivery test"
     if not args.task or not args.task.strip():
         parser.error("Set --task or TASK_DESCRIPTION to describe the worker's assigned task")
     if not re.fullmatch(r"[A-Za-z0-9_-]+", args.station_id):
@@ -271,7 +329,7 @@ def main():
         parser.error("--jev-threshold must be between 0.6 and 1")
     if not math.isfinite(args.cooldown):
         parser.error("--cooldown must be finite")
-    for key in ("TYPESAFE_API_KEY", "GEMINI_API_KEY"):
+    for key in (() if args.force_alert else ("TYPESAFE_API_KEY", "GEMINI_API_KEY")):
         if not os.environ.get(key, "").strip():
             parser.error(f"Set {key} in .env or the environment")
     if not os.environ.get("TIMESCALE_SERVICE_URL"):
@@ -287,7 +345,9 @@ def main():
             station_id=args.station_id, station_name=args.station_name or args.station_id,
             task_description=args.task.strip(), camera_source=source,
             width=args.width, height=args.height, fps=args.fps,
-            data_dir=args.data_dir or Path("data") / ("pi-" + args.station_id),
+            data_dir=args.data_dir or Path("data") / (
+                "pi-" + args.station_id + ("-manual-test" if args.force_alert else "")
+            ),
             sample_interval_s=1, flag_duration_s=5, analysis_backend="image",
             gemini_model=args.gemini_model, local_threshold=args.jev_threshold,
             gemini_threshold=args.gemini_threshold, event_cooldown_s=args.cooldown,
@@ -307,8 +367,6 @@ def main():
                 raise RuntimeError("Another Pi agent is already using this data directory") from None
             local = EventStore(settings.data_dir)
             stack.callback(local.close)
-            reviewer = GeminiReviewer(settings, os.environ["GEMINI_API_KEY"])
-            stack.callback(reviewer.close)
             remote = PostgresEventStore.from_env()
             uploader = EvidenceUploader(local, remote, poll_s=5)
             stack.callback(uploader.close)
@@ -316,6 +374,11 @@ def main():
             stack.callback(recorder.close)
             feed = CameraFeed(settings, recorder)
             stack.callback(feed.close)
+            if args.force_alert:
+                feed.start()
+                return asyncio.run(send_test_alert(settings, local, remote, feed))
+            reviewer = GeminiReviewer(settings, os.environ["GEMINI_API_KEY"])
+            stack.callback(reviewer.close)
             agent = PiAgent(settings, local, reviewer, os.environ["TYPESAFE_API_KEY"],
                             args.model, args.max_in_flight)
 
