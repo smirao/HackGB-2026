@@ -109,13 +109,6 @@
         color: var(--muted);
         margin: 0;
       }
-      .intro {
-        display: flex;
-        justify-content: space-between;
-        align-items: end;
-        gap: 20px;
-        margin-bottom: 26px;
-      }
       .stats {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
@@ -459,10 +452,6 @@
         .header-right #clock {
           display: none;
         }
-        .intro {
-          align-items: start;
-          flex-direction: column;
-        }
         .stats .stat {
           padding: 15px;
         }
@@ -506,9 +495,6 @@
         .footer {
           flex-direction: column;
         }
-        .intro p {
-          font-size: 12px;
-        }
         .card-head {
           padding: 16px;
         }
@@ -546,18 +532,6 @@
       </div>
     </header>
     <main>
-      <div class="intro">
-        <div>
-          <div class="eyebrow">Workstation intelligence</div>
-          <h1>A closer look at every flag.</h1>
-          <p>
-            Review observable orientation around high-risk machinery, with
-            evidence in context.
-          </p>
-        </div>
-        <span class="sub" id="updated">Waiting for connection</span>
-      </div>
-      <div id="mode-notice" class="notice hidden"></div>
       <div id="error" role="status" class="notice error hidden"></div>
       <section class="stats" aria-label="Monitoring statistics">
         <div class="stat">
@@ -814,11 +788,6 @@
               : mode === "baseline"
                 ? "LIVE · BASELINE"
                 : "LIVE · TRAINED";
-          $("mode-notice").classList.toggle("hidden", mode === "trained");
-          $("mode-notice").textContent =
-            mode === "demo"
-              ? "Demonstration only. The camera, poses, and second-stage reviews are synthetic. No Gemini requests are sent."
-              : "Baseline mode uses a head-orientation and dwell rule. It is not a trained attention classifier.";
           $("station-status").textContent = s.running ? "Streaming" : "Offline";
           $("live-dot").style.background = s.running
             ? "var(--accent)"
@@ -868,8 +837,6 @@
               "Camera offline. Check the monitoring service.";
             $("camera-off").classList.remove("hidden");
           }
-          $("updated").textContent =
-            "Updated " + new Date().toLocaleTimeString();
           renderEvents();
           if (!selected && events.length) selectEvent(events[0].id);
           else if (selected) {
