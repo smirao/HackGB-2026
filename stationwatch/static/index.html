@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="color-scheme" content="dark" />
-    <title>StationWatch · Alert hub</title>
+    <title>EyesUp · Alert hub</title>
     <style>
       :root {
         --bg: #101010;
@@ -427,7 +427,7 @@
             stroke="currentColor"
             stroke-width="1.6"
           /></svg
-        >StationWatch <span>/ Alert hub</span>
+        >EyesUp <span>/ Alert hub</span>
       </div>
       <div class="header-right">
         <span id="clock"></span><span class="pill" id="mode">CONNECTING</span>
@@ -616,7 +616,7 @@
         selected = id;
         renderEvents();
         $("detail").innerHTML =
-          `<h3>${e.test_alert ? "Manual test alert" : e.mode === "demo" ? "Synthetic orientation alert" : "Task behavior alert"}</h3><p class="sub">${esc(time(e.captured_at))} · ${esc(e.station_name)}</p><img src="/api/events/${encodeURIComponent(e.id)}/snapshot" alt="Snapshot of selected alert"><p class="reason">${esc(e.review.reason)}</p><dl><div><dt>Local source</dt><dd>${esc(e.local.source.replaceAll("_", " "))}</dd></div><div><dt>${e.test_alert ? "AI review" : e.mode === "demo" ? "Synthetic score" : "Gemini confidence"}</dt><dd>${e.test_alert ? "Bypassed for test" : Math.round(e.review.confidence * 100) + "%"}</dd></div>${e.test_alert ? `<div><dt>Trigger</dt><dd>Manual test command</dd></div>` : e.mode === "image" ? `<div><dt>Consecutive ${e.local.source === "jev" ? "Jev" : "local"} flags</dt><dd>${fixed(e.features.sustained_flag_s, " seconds")}</dd></div><div><dt>Required duration</dt><dd>${e.local.source === "jev" ? "At least" : "More than"} ${fixed(e.features.required_flag_s, " seconds")}</dd></div>` : `<div><dt>Head / body angle · 2D</dt><dd>${fixed(e.features.head_angle_deg, "°")} / ${fixed(e.features.body_angle_deg, "°")}</dd></div><div><dt>Similar-pose dwell</dt><dd>${fixed(e.features.dwell_s, " seconds")}</dd></div>`}<div><dt>Video offset in segment</dt><dd>${fixed(e.video_offset_s, " seconds")}</dd></div><div><dt>Station ID</dt><dd>${esc(e.station_id)}</dd></div></dl><p class="sub">Review source: ${esc(e.review_model)}</p><div class="button-row"><button class="btn" id="mark-reviewed">Mark reviewed</button><button class="btn secondary" id="load-video">Open video context</button></div><div id="video-slot"></div><p class="video-note" id="video-note"></p>`;
+          `<h3>${e.test_alert ? "Manual test alert" : e.mode === "demo" ? "Synthetic orientation alert" : "Task behavior alert"}</h3><p class="sub">${esc(time(e.captured_at))} · ${esc(e.station_name)}</p><img src="/api/events/${encodeURIComponent(e.id)}/snapshot" alt="Snapshot of selected alert"><p class="reason">${esc(e.review.reason)}</p><dl><div><dt>Local source</dt><dd>${esc(e.local.source.replaceAll("_", " "))}</dd></div><div><dt>${e.test_alert ? "AI review" : e.mode === "demo" ? "Synthetic score" : e.alert_source === "jev" ? "Jev confidence" : "Gemini confidence"}</dt><dd>${e.test_alert ? "Bypassed for test" : Math.round(e.review.confidence * 100) + "%"}</dd></div>${e.test_alert ? `<div><dt>Trigger</dt><dd>Manual test command</dd></div>` : e.mode === "image" ? `<div><dt>Consecutive ${e.local.source === "jev" ? "Jev" : "local"} flags</dt><dd>${fixed(e.features.sustained_flag_s, " seconds")}</dd></div><div><dt>Required duration</dt><dd>${e.local.source === "jev" && e.alert_source !== "jev" ? "At least" : "More than"} ${fixed(e.features.required_flag_s, " seconds")}</dd></div>` : `<div><dt>Head / body angle · 2D</dt><dd>${fixed(e.features.head_angle_deg, "°")} / ${fixed(e.features.body_angle_deg, "°")}</dd></div><div><dt>Similar-pose dwell</dt><dd>${fixed(e.features.dwell_s, " seconds")}</dd></div>`}<div><dt>Video offset in segment</dt><dd>${fixed(e.video_offset_s, " seconds")}</dd></div><div><dt>Station ID</dt><dd>${esc(e.station_id)}</dd></div></dl><p class="sub">${e.alert_source === "jev" ? "Detection source" : "Review source"}: ${esc(e.review_model)}</p><div class="button-row"><button class="btn" id="mark-reviewed">Mark reviewed</button><button class="btn secondary" id="load-video">Open video context</button></div><div id="video-slot"></div><p class="video-note" id="video-note"></p>`;
         syncReviewState();
         $("mark-reviewed").onclick = async () => {
           const button = $("mark-reviewed");

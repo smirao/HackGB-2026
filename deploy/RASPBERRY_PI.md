@@ -1,4 +1,4 @@
-# Raspberry Pi: Jev → Gemini → PostgreSQL
+# Raspberry Pi: Jev → PostgreSQL
 
 The entrypoint is `pi_agent.py` (also `python -m stationwatch.pi_agent`). It runs
 without a web server or a trained local model. It captures a live USB camera or
@@ -17,31 +17,31 @@ python3 -m venv .venv
 ```
 
 Put the settings from [`.env.pi.example`](../.env.pi.example) in this checkout's
-`.env`. Supply `TYPESAFE_API_KEY`, `GEMINI_API_KEY`, and the same six `PG*` settings
+`.env`. Supply `TYPESAFE_API_KEY` and the same six `PG*` settings
 used by the dashboard. Use your database provider's actual port and TLS mode.
 The database must already have the schema from `deploy/postgres.sql`.
 The producer database role needs SELECT/INSERT on `stationwatch_alerts` and
 `stationwatch_evidence`, and UPDATE on `stationwatch_alerts`. The role used when
 provisioning the tables already owns them. The Pi needs network access to the
-database and both model APIs. Exported settings override `.env` settings.
+database and Jev. Exported settings override `.env` settings.
 
 Use a distinct `STATION_ID` for each camera. Set `TASK_DESCRIPTION` to the actual
-assigned task so both models evaluate the same behavior. Credentials stay on the
+assigned task so Jev evaluates the intended behavior. Credentials stay on the
 Pi and are never included in an alert's payload or printed by the agent.
 
 For the joystick/laptop demonstration, use
 `TASK_DESCRIPTION="Operate the joystick/controller while facing and observing the laptop display"`.
-Tasks naming a joystick or controller activate a shared detailed rubric in Jev
-and Gemini. On task requires both a hand in an operating position on the controls
+Tasks naming a joystick or controller activate a detailed rubric in Jev.
+On task requires both a hand in an operating position on the controls
 and head/face orientation toward the machine. Clearly looking away is off task
 even with a hand still on the controller; visible hands off the controls or
 looking at a separate phone also counts as off task. Jev always chooses on task
 or off task, reporting lower confidence when visual evidence is ambiguous.
 Neither motion nor precise eye fixation must be proven from
-one frame. The five-second gate still determines when to request review.
+one frame. The duration gate determines when to save an alert.
 The console includes Jev's `model_choice` and `confidence`; there is no confidence
-cutoff converting its choice to a third label. Gemini can still return uncertain
-when it cannot confirm an off-task observation.
+cutoff converting its choice to a third label. The agent makes no Gemini calls
+and requires no Gemini key, model, or threshold setting.
 
 ## Run with the USB camera directly
 
@@ -92,23 +92,20 @@ using the Flask page. Network streams have five-second open/read timeouts.
   API failures, skipped sample ticks, and capture gaps over 1.5 seconds
   break it. Responses older than 20 seconds do not extend a streak. Jev requests
   time out after 15 seconds; missed sampling times are skipped without catch-up
-  bursts. Sampling continues while Gemini or database uploads are busy.
-- Gemini is called once the first and latest consecutive off-task samples span
-  **at least five seconds**. With one sample per second, this normally means six
-  observations at approximately t=0, 1, 2, 3, 4, and 5. Capture times determine the
-  duration. Both models evaluate visible task behavior; Gemini receives the last
-  flagged snapshot and the streak context, rather than a video of the whole streak.
-- Only Gemini's `inattentive` result at confidence ≥0.8 creates an alert. Its
-  `attentive`, `uncertain`, invalid, or failed responses create none. Jev is binary
-  and has no confidence cutoff or `--jev-threshold` option. `--gemini-threshold`
-  changes Gemini's cutoff; its confidence is not a measured accuracy guarantee.
-- Gemini attempts are at least five seconds apart, with one request in flight.
-  A confirmed event starts a 30-second cooldown (`--cooldown` overrides it), so a
+  bursts. Sampling continues while alerts are saved or database uploads are busy.
+- An alert is saved as soon as the first and latest consecutive Jev off-task
+  samples span **more than five seconds**. Exactly five seconds is insufficient.
+  At exact one-second intervals, samples at t=0 through t=6 satisfy the gate.
+  Capture times determine the duration; API latency does not extend the streak.
+  There is no second AI review.
+- Jev is binary and has no confidence cutoff or `--jev-threshold` option. Confidence
+  is retained in the alert for inspection and is not a measured accuracy guarantee.
+- A saved alert starts a 30-second cooldown (`--cooldown` overrides it), so a
   sustained episode does not create an alert every second.
 
 Alerts include station and session IDs, UTC capture/confirmation timestamps, the
-assigned task, Jev decision/confidence/probabilities/model, Gemini reason and
-confidence/model, streak duration, a JPEG snapshot, recording name, and the
+assigned task, Jev decision/confidence/probabilities/model, an explanation of the
+observed streak, streak duration, a JPEG snapshot, recording name, and the
 encoded video offset. The existing dashboard can display and review them.
 
 ## Force one test alert
@@ -121,7 +118,7 @@ With the camera streamer running, use another Pi terminal:
 ```
 
 This captures a snapshot and a 15-second video, uploads one alert,
-and exits. It bypasses both AI APIs and the duration gate; API keys and `--task`
+and exits. It bypasses Jev and the duration gate; the API key and `--task`
 are optional for this command. PostgreSQL credentials are still required. The
 dashboard labels it **Manual test alert**, with **AI review: Bypassed for test**.
 Its payload contains `test_alert: true` and `alert_source: "manual_test"`, with no
@@ -132,19 +129,19 @@ Both this command and a running normal agent can use the shared HTTP feed.
 is `data/pi-<station-id>-manual-test/`, separate from normal monitoring. A database
 failure leaves the evidence queued there and returns exit status 1. Rerunning
 the command retries queued tests and creates a new test alert. Normal monitoring
-keeps its existing AI gates.
+keeps its Jev duration gate.
 
 ## Uploads, recording, and restarts
 
-Confirmed alerts and snapshots are committed to a local SQLite outbox before
+Jev off-task alerts and snapshots are committed to a local SQLite outbox before
 upload. The uploader sends the alert plus snapshot in one PostgreSQL transaction,
 then sends its video once the 15-second H.264 MP4 segment is finalized. Until then,
 the website can display the alert and snapshot; its video action asks you to retry.
 Database outages retry with backoff up to five minutes. Stable IDs make retries
 idempotent and preserve the manager's reviewed status. No database calls run when
 there is nothing queued. Normal observations and continuous video are not sent
-to PostgreSQL; only confirmed alerts and their containing segments are uploaded.
-Jev receives the sampled frames, and Gemini receives snapshots selected for review.
+to PostgreSQL; only off-task alerts and their containing segments are uploaded.
+Jev receives the sampled frames. No frames are sent to Gemini.
 The dashboard plays new clips from the beginning, showing the full recording
 rather than seeking to the last few seconds around the alert. The alert's actual
 offset remains recorded in the event metadata. A clip is the 15-second segment
@@ -165,11 +162,11 @@ mode also waits for 15 seconds of encoded footage before uploading. If capture
 is interrupted or the agent is stopped before an active segment fills, the
 finalized recording can be shorter.
 
-Ctrl+C and SIGTERM stop sampling, finish an active review, finalize the recording,
+Ctrl+C and SIGTERM stop sampling, finish an active local save, finalize the recording,
 and attempt a final upload. Camera or encoder failure exits with an error;
 a service can restart it. A hard power loss may leave a `.partial.mp4` recording
 that needs manual recovery; completed queued alerts and snapshots still survive.
-No real camera, Jev/Gemini accuracy, or Raspberry Pi performance is certified by
+No real camera, Jev accuracy, or Raspberry Pi performance is certified by
 the automated tests.
 
 ## Start at boot (optional)

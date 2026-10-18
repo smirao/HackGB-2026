@@ -37,7 +37,7 @@ def create_app(pipeline=None, store=None, dashboard_token=None, uploader=None):
                 uploader.close()
             store.close()
 
-    app = FastAPI(title="StationWatch", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(title="EyesUp", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 
     @app.exception_handler(DatabaseUnavailable)
     async def database_unavailable(request, exc):

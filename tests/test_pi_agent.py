@@ -12,7 +12,6 @@ import numpy as np
 import pytest
 
 from stationwatch.config import Settings
-from stationwatch.gemini import Review
 from stationwatch.pi_agent import CameraFeed, PiAgent, Sample
 from stationwatch.postgres import PostgresEventStore
 from stationwatch.storage import EventStore
@@ -27,47 +26,49 @@ def result(decision="off_task", confidence=0.95):
 @pytest.fixture
 def agent_setup(tmp_path):
     local = EventStore(tmp_path)
-    reviewer = Mock()
-    reviewer.review.return_value = Review(decision="inattentive", confidence=0.95, reason="Unrelated activity")
-    agent = PiAgent(Settings(task_description="Assemble parts", local_threshold=0.6), local, reviewer, "key")
+    agent = PiAgent(Settings(task_description="Operate the joystick while facing the laptop"), local, "key")
     sample = Sample(b"snapshot", "2026-10-18T18:00:00+00:00", time.monotonic() - 10,
                     0, "segment.mp4", 0, "session")
-    yield agent, local, reviewer, sample
+    yield agent, local, sample
     local.close()
 
 
-def test_pi_duration_gate_includes_exactly_five_seconds():
-    gate = SustainedFlag(5, 1.5, inclusive=True)
-    for captured in range(5):
+def test_pi_duration_gate_requires_more_than_five_seconds():
+    gate = SustainedFlag(5, 1.5)
+    for captured in range(6):
         assert not gate.update(True, captured)
-    assert gate.update(True, 5)
-    assert not gate.update(False, 6)
-    assert not gate.update(True, 7)
-    assert not gate.update(True, 10)
+    assert gate.update(True, 6)
+    assert not gate.update(False, 7)
+    assert not gate.update(True, 8)
+    assert not gate.update(True, 11)
 
 
-def test_five_second_streak_produces_dashboard_event_and_original_evidence(agent_setup):
-    agent, local, reviewer, sample = agent_setup
+def test_jev_streak_directly_produces_dashboard_event_and_original_evidence(agent_setup):
+    agent, local, sample = agent_setup
 
     async def exercise():
-        for i in range(5):
+        for i in range(6):
             agent.accept(replace(sample, sequence=i, monotonic_s=sample.monotonic_s + i), result())
-        reviewer.review.assert_not_called()
-        agent.accept(replace(sample, sequence=5, monotonic_s=sample.monotonic_s + 5,
-                             elapsed_s=5, video_offset_s=5), result())
-        await agent.review_task
-        agent.accept(replace(sample, sequence=6, monotonic_s=sample.monotonic_s + 6), result())
-        await agent.review_task
+        assert agent.save_task is None
+        assert local.list() == []
+        agent.accept(replace(sample, sequence=6, monotonic_s=sample.monotonic_s + 6,
+                             elapsed_s=6, video_offset_s=6), result())
+        await agent.save_task
+        agent.accept(replace(sample, sequence=7, monotonic_s=sample.monotonic_s + 7), result())
+        await agent.save_task
 
     asyncio.run(exercise())
-    reviewer.review.assert_called_once()
+    assert len(local.list()) == 1
     event = local.list()[0]
-    assert event["features"]["sustained_flag_s"] == 5
+    assert event["features"]["sustained_flag_s"] == 6
     assert event["features"]["source"] == "jev"
     assert event["mode"] == "image" and event["local"]["source"] == "jev"
     assert event["jev"]["model"] == "jev-test"
-    assert event["task_description"] == "Assemble parts"
-    assert event["captured_at"] == sample.captured_at and event["video_offset_s"] == 5
+    assert event["alert_source"] == "jev" and event["review_model"] == "jev-test"
+    assert event["review"]["decision"] == "off_task"
+    assert event["review"]["confidence"] == result()["confidence"]
+    assert "6.0 seconds" in event["review"]["reason"]
+    assert event["captured_at"] == sample.captured_at and event["video_offset_s"] == 6
     assert event["video_playback_start_s"] == 0 and event["clip_target_s"] == 15
     assert event["session_id"] == sample.session_id
     assert (local.root / "snapshots" / (event["id"] + ".jpg")).read_bytes() == sample.jpeg
@@ -76,7 +77,7 @@ def test_five_second_streak_produces_dashboard_event_and_original_evidence(agent
 
 @pytest.mark.parametrize("interruption", ["on_task", "error", "skipped"])
 def test_interrupted_observations_restart_streak(agent_setup, interruption):
-    agent, local, reviewer, sample = agent_setup
+    agent, local, sample = agent_setup
 
     async def exercise():
         for i in range(8):
@@ -89,83 +90,85 @@ def test_interrupted_observations_restart_streak(agent_setup, interruption):
                 elif interruption == "error":
                     answer = None
             agent.accept(replace(sample, sequence=i, monotonic_s=sample.monotonic_s + i), answer)
-        assert agent.review_task is None
+        assert agent.save_task is None
 
     asyncio.run(exercise())
-    reviewer.review.assert_not_called()
     assert local.list() == []
 
 
-def test_stale_responses_cannot_trigger_gemini(agent_setup):
-    agent, _, reviewer, sample = agent_setup
-    for i in range(6):
+def test_stale_responses_cannot_create_alerts(agent_setup):
+    agent, local, sample = agent_setup
+    for i in range(7):
         agent.accept(replace(sample, sequence=i, monotonic_s=time.monotonic() - 40 + i), result())
-    reviewer.review.assert_not_called()
+    assert local.list() == []
     assert agent.gate.elapsed_s == 0
 
 
 def test_binary_off_task_streak_counts_low_confidence_choices(agent_setup):
-    agent, local, reviewer, sample = agent_setup
+    agent, local, sample = agent_setup
 
     async def exercise():
-        for i in range(6):
+        for i in range(7):
             agent.accept(replace(sample, sequence=i, monotonic_s=sample.monotonic_s + i),
                          result(confidence=0.4))
-        await agent.review_task
+        await agent.save_task
 
     asyncio.run(exercise())
-    reviewer.review.assert_called_once()
     assert local.list()[0]['local']['score'] == 0.4
+    assert local.list()[0]['review_model'] == 'jev-test'
 
 
-@pytest.mark.parametrize("decision,confidence", [("attentive", 0.99), ("uncertain", 0.99),
-                                                   ("inattentive", 0.79), ("error", 0.99)])
-def test_only_gemini_confirmation_creates_alert(agent_setup, decision, confidence):
-    agent, local, reviewer, sample = agent_setup
-    if decision == "error":
-        reviewer.review.side_effect = RuntimeError("secret-provider-body")
-    else:
-        reviewer.review.return_value = Review(decision=decision, confidence=confidence, reason="Test")
-
-    async def exercise():
-        for i in range(6):
-            agent.accept(replace(sample, sequence=i, monotonic_s=sample.monotonic_s + i), result())
-        await agent.review_task
-
-    asyncio.run(exercise())
-    assert local.list() == []
-
-
-def test_busy_gemini_does_not_block_later_observations_or_start_duplicate_reviews(agent_setup):
-    agent, local, reviewer, sample = agent_setup
+def test_busy_local_save_does_not_block_observations_or_create_duplicates(agent_setup):
+    agent, local, sample = agent_setup
     entered, release = threading.Event(), threading.Event()
+    original_add = local.add
+    calls = []
 
-    def slow_review(*args):
+    def slow_save(event, jpeg):
+        calls.append(event['id'])
         entered.set()
         assert release.wait(3)
-        return Review(decision="inattentive", confidence=0.99, reason="Unrelated activity")
+        original_add(event, jpeg)
 
-    reviewer.review.side_effect = slow_review
+    local.add = slow_save
 
     async def exercise():
-        for i in range(6):
+        for i in range(7):
             agent.accept(replace(sample, sequence=i, monotonic_s=sample.monotonic_s + i), result())
         try:
             assert await asyncio.to_thread(entered.wait, 1)
-            for i in range(6, 9):
+            for i in range(7, 10):
                 agent.accept(replace(sample, sequence=i, monotonic_s=sample.monotonic_s + i), result())
-            assert agent.gate.elapsed_s == 8
-            assert reviewer.review.call_count == 1
+            assert agent.gate.elapsed_s == 9
+            assert len(calls) == 1
         finally:
             release.set()
-        await agent.review_task
+        await agent.save_task
+
+    asyncio.run(exercise())
+    assert len(local.list()) == 1
+
+
+def test_failed_local_save_can_retry_without_starting_cooldown(agent_setup):
+    agent, local, sample = agent_setup
+    original_add = local.add
+    local.add = Mock(side_effect=OSError('Disk unavailable'))
+
+    async def exercise():
+        for i in range(7):
+            agent.accept(replace(sample, sequence=i, monotonic_s=sample.monotonic_s + i), result())
+        await agent.save_task
+        assert local.list() == []
+        local.add = original_add
+        agent.accept(replace(sample, sequence=7, monotonic_s=sample.monotonic_s + 7), result())
+        await agent.save_task
 
     asyncio.run(exercise())
     assert len(local.list()) == 1
 
 
 def test_real_jev_client_samples_concurrently_and_consumes_in_capture_order(agent_setup):
-    agent, _, _, _ = agent_setup
+    agent, _, _ = agent_setup
     agent.max_in_flight = 2
     ok, encoded = cv2.imencode(".jpg", np.zeros((300, 300, 3), np.uint8))
     assert ok
@@ -204,7 +207,7 @@ def test_real_jev_client_samples_concurrently_and_consumes_in_capture_order(agen
 
 
 def test_request_limit_skips_ticks_and_resets_streak(agent_setup):
-    agent, _, reviewer, _ = agent_setup
+    agent, _, _ = agent_setup
     agent.max_in_flight = 1
     consumed = []
     agent.accept = lambda sample, answer: consumed.append(sample.sequence)
@@ -227,7 +230,6 @@ def test_request_limit_skips_ticks_and_resets_streak(agent_setup):
 
     asyncio.run(exercise())
     assert calls == 2 and consumed == [0, 2]
-    reviewer.review.assert_not_called()
 
 
 def test_provided_mjpeg_feed_uses_timeouts_and_releases_camera(monkeypatch):
@@ -328,7 +330,7 @@ def test_upload_outage_survives_restart_and_waits_for_finalized_video(tmp_path):
 
 
 def test_no_database_traffic_until_confirmed_and_shutdown_flushes_queue(agent_setup):
-    _, local, _, _ = agent_setup
+    _, local, _ = agent_setup
     remote = Mock()
     uploader = EvidenceUploader(local, remote)
     uploader.run_once()
@@ -340,7 +342,7 @@ def test_no_database_traffic_until_confirmed_and_shutdown_flushes_queue(agent_se
 def test_forced_alert_bypasses_models_and_uploads_honestly_labeled_evidence(agent_setup):
     from stationwatch.pi_agent import send_test_alert
 
-    agent, local, reviewer, sample = agent_setup
+    agent, local, sample = agent_setup
     sample = replace(sample, monotonic_s=time.monotonic())
     remote = Mock()
 
@@ -350,7 +352,6 @@ def test_forced_alert_bypasses_models_and_uploads_honestly_labeled_evidence(agen
     feed = SimpleNamespace(error=False, start=Mock(), snapshot=lambda: sample, close=finish_clip)
     status = asyncio.run(send_test_alert(agent.settings, local, remote, feed, record_seconds=0))
     assert status == 0
-    reviewer.review.assert_not_called()
     event = local.list()[0]
     assert event['test_alert'] is True and event['alert_source'] == 'manual_test'
     assert event['local'] == {'flagged': False, 'score': 0, 'source': 'manual_test'}
@@ -367,7 +368,7 @@ def test_forced_alert_bypasses_models_and_uploads_honestly_labeled_evidence(agen
 def test_forced_alert_waits_for_fifteen_encoded_seconds(agent_setup, monkeypatch):
     import stationwatch.pi_agent as module
 
-    agent, local, _, sample = agent_setup
+    agent, local, sample = agent_setup
     samples = iter(replace(sample, monotonic_s=time.monotonic(), video_offset_s=offset)
                    for offset in (0, 5, 14.8, 15 - 1 / agent.settings.fps))
     snapshot = Mock(side_effect=lambda: next(samples))
@@ -391,7 +392,7 @@ def test_forced_alert_waits_for_fifteen_encoded_seconds(agent_setup, monkeypatch
 def test_forced_alert_upload_failure_is_durable_and_retried(agent_setup, failure, caplog):
     from stationwatch.pi_agent import send_test_alert
 
-    agent, local, _, sample = agent_setup
+    agent, local, sample = agent_setup
     sample = replace(sample, monotonic_s=time.monotonic())
     clip = local.root / 'recordings' / sample.segment
     feed = SimpleNamespace(error=False, start=Mock(), snapshot=lambda: sample, close=lambda: clip.write_bytes(b'video'))
@@ -458,7 +459,6 @@ def test_force_alert_cli_works_without_api_keys_while_normal_directory_is_locked
     remote = Mock()
     monkeypatch.setattr(module.PostgresEventStore, 'from_env', lambda: remote)
     no_ai = Mock(side_effect=AssertionError('Test mode must not initialize or call AI clients'))
-    monkeypatch.setattr(module, 'GeminiReviewer', no_ai)
     monkeypatch.setattr(module, 'PiAgent', no_ai)
     monkeypatch.setattr(module, 'SegmentRecorder', Mock())
 
@@ -485,3 +485,81 @@ def test_force_alert_cli_works_without_api_keys_while_normal_directory_is_locked
     event = remote.publish_alert.call_args.args[0]
     assert event['test_alert'] is True and event['task_description'] == 'Manual alert delivery test'
     assert remote.publish_alert.call_args.args[1].parent.parent == Path('data/pi-workbench-01-manual-test')
+
+
+@pytest.mark.parametrize('duration,accepted', [(4.9, False), (5.0, False), (5.01, True), (6, True)])
+def test_postgres_accepts_jev_alerts_only_after_more_than_five_seconds(tmp_path, monkeypatch, duration, accepted):
+    connection = Mock()
+    context = Mock(__enter__=Mock(return_value=connection), __exit__=Mock(return_value=False))
+    store = PostgresEventStore()
+    monkeypatch.setattr(store, '_connection', lambda: context)
+    event = {
+        'id': 'jev-event', 'captured_at': '2026-10-18T18:00:00Z', 'mode': 'image',
+        'alert_source': 'jev', 'review_model': 'jev-test',
+        'local': {'flagged': True, 'source': 'jev'},
+        'jev': {'decision': 'off_task', 'confidence': 0.4, 'model': 'jev-test'},
+        'features': {'sustained_flag_s': duration, 'required_flag_s': 5},
+        'review': {'decision': 'off_task', 'confidence': 0.4},
+    }
+    snapshot = tmp_path / 'test.jpg'
+    snapshot.write_bytes(b'jpeg')
+    if accepted:
+        store.publish_alert(event, snapshot)
+        assert connection.execute.call_count == 2
+        assert connection.execute.call_args_list[0].args[1][2].obj['alert_source'] == 'jev'
+    else:
+        with pytest.raises(ValueError, match='more than five seconds'):
+            store.publish_alert(event, snapshot)
+        connection.execute.assert_not_called()
+
+
+def test_normal_agent_runs_and_uploads_without_gemini_key(tmp_path, monkeypatch):
+    import stationwatch.pi_agent as module
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(module, 'load_dotenv', Mock())
+    monkeypatch.delenv('GEMINI_API_KEY', raising=False)
+    monkeypatch.setenv('TYPESAFE_API_KEY', 'fake-key')
+    for name in ('PGUSER', 'PGPASSWORD', 'PGDATABASE', 'PGHOST', 'PGPORT', 'PGSSLMODE'):
+        monkeypatch.setenv(name, 'test')
+    monkeypatch.setattr('sys.argv', ['pi_agent.py', '--task', 'Operate the joystick', '--station-id', 'test'])
+    remote = Mock()
+    monkeypatch.setattr(module.PostgresEventStore, 'from_env', lambda: remote)
+    monkeypatch.setattr(module, 'SegmentRecorder', Mock())
+
+    def create_feed(settings, recorder):
+        def close():
+            (settings.data_dir / 'recordings' / 'clip.mp4').write_bytes(b'video')
+        return SimpleNamespace(error=False, start=lambda: None, close=close)
+
+    async def process_frames(agent, feed, stop):
+        base = time.monotonic() - 8
+        for sequence in range(7):
+            sample = Sample(b'jpeg', '2026-10-18T18:00:00Z', base + sequence,
+                            sequence, 'clip.mp4', sequence, 'test', sequence)
+            agent.accept(sample, result())
+        await agent.save_task
+        assert agent.store.list()[0]['review_model'] == 'jev-test'
+
+    monkeypatch.setattr(module, 'CameraFeed', create_feed)
+    monkeypatch.setattr(module.PiAgent, 'run', process_frames)
+    assert module.main() == 0
+    assert remote.publish_alert.call_count >= 1
+    assert remote.publish_alert.call_args.args[0]['alert_source'] == 'jev'
+
+
+def test_pi_agent_import_does_not_import_gemini():
+    import subprocess
+    import sys
+
+    code = '''
+import importlib.abc
+import sys
+class NoGemini(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "stationwatch.gemini":
+            raise AssertionError("Pi agent must not import Gemini")
+sys.meta_path.insert(0, NoGemini())
+import stationwatch.pi_agent
+'''
+    subprocess.run([sys.executable, '-c', code], check=True, cwd=Path(__file__).resolve().parents[1])

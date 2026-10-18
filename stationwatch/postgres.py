@@ -5,6 +5,7 @@ is performed at import/startup, so liveness does not depend on the database.
 """
 
 import hashlib
+import math
 import os
 import tempfile
 import threading
@@ -95,8 +96,24 @@ class PostgresEventStore:
                        and event.get("local", {}).get("source") == "manual_test")
         if event.get("mode") == "demo" or (not manual_test and not event.get("local", {}).get("flagged")):
             raise ValueError("Only live, flagged events may be uploaded")
-        if not manual_test and event.get("review", {}).get("decision") != "inattentive":
-            raise ValueError("Only Gemini-confirmed events may be uploaded")
+        if event.get("alert_source") == "jev":
+            jev = event.get("jev") or {}
+            features = event.get("features") or {}
+            duration = features.get("sustained_flag_s")
+            if not (
+                event.get("mode") == "image"
+                and event.get("local", {}).get("source") == "jev"
+                and event.get("review", {}).get("decision") == "off_task"
+                and jev.get("decision") == "off_task"
+                and isinstance(jev.get("model"), str) and jev["model"]
+                and event.get("review_model") == jev["model"]
+                and isinstance(duration, (int, float)) and math.isfinite(duration) and duration > 5
+                and features.get("required_flag_s") == 5
+            ):
+                raise ValueError("Jev alerts require more than five seconds of off-task observations")
+        elif not manual_test and event.get("review", {}).get("decision") != "inattentive":
+            # Continue uploading already queued alerts from the previous confirmation workflow.
+            raise ValueError("Alert does not contain a supported off-task decision")
         content = snapshot.read_bytes()
         with self._connection() as connection:
             # Retries preserve both the original evidence and the manager's review status.

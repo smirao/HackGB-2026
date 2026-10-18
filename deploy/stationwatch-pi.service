@@ -1,5 +1,5 @@
 [Unit]
-Description=StationWatch Jev/Gemini camera agent
+Description=StationWatch Jev camera agent
 After=network-online.target
 Wants=network-online.target
 

@@ -1,10 +1,10 @@
 # StationWatch
 
-### Raspberry Pi: camera → Jev → Gemini → PostgreSQL dashboard
+### Raspberry Pi: camera → Jev → PostgreSQL dashboard
 
-The agent calls Jev every second, asks Gemini to review after **at least five
-seconds** of consecutive off-task observations, and sends confirmed alerts,
-snapshots, and video to PostgreSQL for the dashboard.
+The agent calls Jev every second and sends an alert, snapshot, and 15-second video
+to PostgreSQL after **more than five seconds** of consecutive Jev off-task
+observations. The Pi agent does not use Gemini.
 
 #### 1. Put the project on the Pi
 
@@ -49,7 +49,6 @@ Fill in your real credentials and station details:
 
 ```dotenv
 TYPESAFE_API_KEY=your-typesafe-api-key
-GEMINI_API_KEY=your-gemini-api-key
 PGPASSWORD=your-postgres-password
 PGUSER=your-postgres-user
 PGDATABASE=your-postgres-database
@@ -120,8 +119,8 @@ settings:
 python -m stationwatch.hub
 ```
 
-Open **http://127.0.0.1:8080** on that computer. Alerts appear only when Gemini
-confirms an off-task streak. Snapshots upload first; video becomes available once
+Open **http://127.0.0.1:8080** on that computer. Alerts appear when Jev's off-task
+observations span more than five seconds. Snapshots upload first; video becomes available once
 its 15-second recording segment closes. Playback starts at the beginning so the
 full clip is visible. Database failures keep confirmed alerts
 in a local queue for retry.
@@ -146,7 +145,7 @@ behavior, camera options, and an optional systemd service that starts at boot.
 #### Controller/laptop task rules
 
 When `--task` or `TASK_DESCRIPTION` names a **joystick** or **controller**, Jev
-and Gemini use the same detailed workstation rubric:
+uses a detailed workstation rubric:
 
 - **On task:** a hand is in an operating position on the controls **and** the
   person's head/face is directed toward the machine/laptop display.
@@ -157,19 +156,19 @@ and Gemini use the same detailed workstation rubric:
 Jev chooses only **on task** or **off task**, using the best-supported label
 when the image is ambiguous and reporting its confidence separately. A clear
 violation of either requirement supports off task even if the other is hidden.
-Gemini uses the same visible-behavior rules for confirmation and may still return
-uncertain when it cannot independently confirm the observation.
 
 A still frame does not need to prove joystick movement, button presses, precise
 eye fixation, or readable screen content. The five-second gate handles duration;
 the image classifier assesses the current frame. Other task descriptions keep
-the general task-behavior prompt. Restart the agent after updating its code or
+the general task-behavior prompt. An alert requires **more than five seconds** of
+off-task observations; exactly five seconds is insufficient. Restart the agent after updating its code or
 task description.
 
 The console prints Jev's `model_choice` and `confidence` alongside the decision.
 There is no Jev confidence cutoff or `--jev-threshold` option: every valid
 off-task decision counts toward the streak. API failures, missing frames, and
-on-task decisions break it; Gemini confirmation is still required for alerts.
+on-task decisions break it. The Pi agent requires only `TYPESAFE_API_KEY` and the
+database credentials; no Gemini key or confirmation is required.
 
 #### Send a manual test alert
 
@@ -184,8 +183,8 @@ python pi_agent.py --force-alert \
 ```
 
 This records a 15-second video, sends **one manual test
-alert** with its snapshot and video to PostgreSQL, then exits. It bypasses Jev,
-Gemini, and the five-second gate, so neither API key is required for this command.
+alert** with its snapshot and video to PostgreSQL, then exits. It bypasses Jev
+and the duration gate, so no API key is required for this command.
 The dashboard shows **Manual test alert** and **AI review: Bypassed for test**.
 The event does not claim that either AI found off-task behavior.
 
@@ -194,7 +193,7 @@ Use `--source 0` instead if the USB camera is free. Test uploads have their own
 local queue at `data/pi-<station-id>-manual-test/`. An upload failure returns a
 nonzero exit status and retains the evidence there. Running the command again
 retries queued tests and creates one new test alert. Normal monitoring continues
-to require AI confirmation.
+to require more than five seconds of consecutive Jev off-task observations.
 
 ### Classify a video feed with Jev
 

@@ -115,7 +115,7 @@ def make_event(event_id, packet, settings, features, prediction, review, mode, c
         "video_offset_s": packet.video_offset_s,
         "features": asdict(features),
         "local": asdict(prediction),
-        "review": review.model_dump(),
+        "review": dict(review) if isinstance(review, dict) else review.model_dump(),
         "review_model": "synthetic_demo" if mode == "demo" else settings.gemini_model,
         "analysis_backend": "image" if mode == "image" else "pose",
         "pose_backend": None

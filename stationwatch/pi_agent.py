@@ -1,4 +1,4 @@
-"""Live camera → Jev every second → five-second gate → Gemini → PostgreSQL."""
+"""Live camera → Jev every second → more than five seconds off task → PostgreSQL."""
 
 import argparse
 import asyncio
@@ -25,7 +25,6 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from .config import Settings
-from .gemini import GeminiReviewer, Review
 from .images import prepare_image
 from .jev import classify_jpeg
 from .postgres import PostgresEventStore
@@ -148,13 +147,13 @@ class CameraFeed:
 
 
 class PiAgent:
-    def __init__(self, settings, local_store, reviewer, jev_key, jev_model="jev-latest", max_in_flight=8):
-        self.settings, self.store, self.reviewer = settings, local_store, reviewer
+    def __init__(self, settings, local_store, jev_key, jev_model="jev-latest", max_in_flight=8):
+        self.settings, self.store = settings, local_store
         self.jev_key, self.jev_model, self.max_in_flight = jev_key, jev_model, max_in_flight
-        self.gate = SustainedFlag(5, 1.5, inclusive=True)
+        self.gate = SustainedFlag(5, 1.5)
         self.previous_sequence = None
-        self.last_attempt = self.last_confirmed = float("-inf")
-        self.review_task = None
+        self.last_alert_at = float("-inf")
+        self.save_task = None
 
     async def classify(self, client, sample):
         try:
@@ -181,31 +180,33 @@ class PiAgent:
                  f"{result['confidence']:.3f}" if result else "unavailable",
                  self.gate.elapsed_s, sample.captured_at)
         now = time.monotonic()
-        if (not sustained or now - self.last_attempt < self.settings.review_interval_s
-                or now - self.last_confirmed < self.settings.event_cooldown_s
-                or (self.review_task is not None and not self.review_task.done())):
+        if (not sustained or now - self.last_alert_at < self.settings.event_cooldown_s
+                or (self.save_task is not None and not self.save_task.done())):
             return
-        self.last_attempt = now
         features = JevObservation(self.gate.elapsed_s)
-        self.review_task = asyncio.create_task(self.confirm(sample, features, result))
+        self.save_task = asyncio.create_task(self.save_alert(sample, features, result))
 
-    async def confirm(self, sample, features, result):
+    async def save_alert(self, sample, features, result):
         try:
-            review = await asyncio.to_thread(self.reviewer.review, sample.jpeg, features)
-            if review.decision != "inattentive" or review.confidence < self.settings.gemini_threshold:
-                log.info("Gemini did not confirm off-task behavior; no alert created")
-                return
+            observation = {
+                "decision": "off_task",
+                "confidence": result["confidence"],
+                "reason": (f"Jev classified consecutive observations as off task for "
+                           f"{features.sustained_flag_s:.1f} seconds. "
+                           f"Assigned task: {self.settings.task_description}"),
+            }
             event_id = uuid.uuid4().hex
             event = make_event(event_id, sample, self.settings, features,
-                               JevPrediction(True, result["confidence"]), review, "image", utc_now())
+                               JevPrediction(True, result["confidence"]), observation, "image", utc_now())
             event.update(jev=result, task_description=self.settings.task_description,
-                         video_playback_start_s=0, clip_target_s=ALERT_CLIP_SECONDS)
+                         video_playback_start_s=0, clip_target_s=ALERT_CLIP_SECONDS,
+                         alert_source="jev", review_model=result["model"])
             # SQLite + snapshot are durable before the independent database uploader sees them.
             await asyncio.to_thread(self.store.add, event, sample.jpeg)
-            self.last_confirmed = time.monotonic()
-            log.info("Confirmed alert %s queued for PostgreSQL", event_id)
-        except Exception as exc:  # noqa: BLE001 — isolate provider/storage failures from capture.
-            log.error("Gemini review or local alert save failed (%s)", type(exc).__name__)
+            self.last_alert_at = time.monotonic()
+            log.info("Jev off-task alert %s queued for PostgreSQL", event_id)
+        except Exception as exc:  # noqa: BLE001 — isolate storage failures from capture.
+            log.error("Local alert save failed (%s)", type(exc).__name__)
 
     async def run(self, feed, stop, transport=None):
         pending = deque()
@@ -243,13 +244,13 @@ class PiAgent:
                 await asyncio.gather(*(task for _, task in pending), return_exceptions=True)
                 stop_wait.cancel()
                 await asyncio.gather(stop_wait, return_exceptions=True)
-                if self.review_task is not None:
-                    await self.review_task
+                if self.save_task is not None:
+                    await self.save_task
 
 
 async def send_test_alert(settings, store, remote, feed, record_seconds=ALERT_CLIP_SECONDS):
-    """Capture one explicitly marked manual alert without calling either model."""
-    log.info("MANUAL TEST: recording camera evidence; Jev and Gemini are bypassed")
+    """Capture one explicitly marked manual alert without calling Jev."""
+    log.info("MANUAL TEST: recording camera evidence; Jev is bypassed")
     # Retry older manual tests from this separate outbox before creating a new one.
     await asyncio.to_thread(EvidenceUploader(store, remote).run_once)
     feed.start()
@@ -276,9 +277,9 @@ async def send_test_alert(settings, store, remote, feed, record_seconds=ALERT_CL
     event = make_event(
         event_id, sample, settings, JevObservation(0, source="manual_test"),
         JevPrediction(False, 0, "manual_test"),
-        Review(decision="uncertain", confidence=0.0,
-               reason="MANUAL TEST ALERT: operator forced delivery to test the dashboard. "
-                      "Jev and Gemini were bypassed; no off-task behavior was confirmed."),
+        {"decision": "uncertain", "confidence": 0.0,
+         "reason": "MANUAL TEST ALERT: operator forced delivery to test the dashboard. "
+                   "Jev was bypassed; no off-task behavior was confirmed."},
         "image", utc_now(),
     )
     event.update(test_alert=True, alert_source="manual_test", review_model="manual_test",
@@ -316,12 +317,10 @@ def main():
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--fps", type=int, default=15)
     parser.add_argument("--model", default=os.environ.get("TYPESAFE_MODEL", "jev-latest"))
-    parser.add_argument("--gemini-model", default=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"))
-    parser.add_argument("--gemini-threshold", type=float, default=0.8)
     parser.add_argument("--cooldown", type=float, default=30, help="Minimum seconds between confirmed alerts")
     parser.add_argument("--max-in-flight", type=int, default=8)
     parser.add_argument("--force-alert", action="store_true",
-                        help="Send one labeled manual test alert with camera evidence, bypass both AIs, and exit")
+                        help="Send one labeled manual test alert with camera evidence, bypass Jev, and exit")
     args = parser.parse_args()
     if args.force_alert and (not args.task or not args.task.strip()):
         args.task = "Manual alert delivery test"
@@ -333,7 +332,7 @@ def main():
         parser.error("--max-in-flight must be between 1 and 32")
     if not math.isfinite(args.cooldown):
         parser.error("--cooldown must be finite")
-    for key in (() if args.force_alert else ("TYPESAFE_API_KEY", "GEMINI_API_KEY")):
+    for key in (() if args.force_alert else ("TYPESAFE_API_KEY",)):
         if not os.environ.get(key, "").strip():
             parser.error(f"Set {key} in .env or the environment")
     if not os.environ.get("TIMESCALE_SERVICE_URL"):
@@ -354,8 +353,7 @@ def main():
             ),
             sample_interval_s=1, flag_duration_s=5, analysis_backend="image",
             segment_seconds=2 * ALERT_CLIP_SECONDS if args.force_alert else ALERT_CLIP_SECONDS,
-            gemini_model=args.gemini_model,
-            gemini_threshold=args.gemini_threshold, event_cooldown_s=args.cooldown,
+            event_cooldown_s=args.cooldown,
         )
     except ValidationError:
         parser.error("Invalid configuration: check dimensions, model name, thresholds, and cooldown")
@@ -381,9 +379,7 @@ def main():
             stack.callback(feed.close)
             if args.force_alert:
                 return asyncio.run(send_test_alert(settings, local, remote, feed))
-            reviewer = GeminiReviewer(settings, os.environ["GEMINI_API_KEY"])
-            stack.callback(reviewer.close)
-            agent = PiAgent(settings, local, reviewer, os.environ["TYPESAFE_API_KEY"],
+            agent = PiAgent(settings, local, os.environ["TYPESAFE_API_KEY"],
                             args.model, args.max_in_flight)
 
             async def monitor():
@@ -399,7 +395,7 @@ def main():
                     for sig in (signal.SIGINT, signal.SIGTERM):
                         loop.remove_signal_handler(sig)
 
-            log.info("Monitoring station %s: Jev every second; Gemini after at least 5s off-task",
+            log.info("Monitoring station %s: Jev every second; alert after more than 5s off-task",
                      settings.station_id)
             asyncio.run(monitor())
             feed.close()  # Finalize the active video before the last upload attempt.

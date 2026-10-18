@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Start the Jev → Gemini → PostgreSQL Raspberry Pi camera agent."""
+"""Start the Jev → PostgreSQL Raspberry Pi camera agent."""
 
 from stationwatch.pi_agent import main
 
