@@ -7,10 +7,11 @@ import uuid
 
 
 class SegmentRecorder:
-    def __init__(self, settings, store):
+    def __init__(self, settings, store, duration_by_frames=False):
         if not shutil.which("ffmpeg"):
             raise RuntimeError("ffmpeg is required for browser-playable H.264 video recording")
         self.settings, self.store = settings, store
+        self.duration_by_frames = duration_by_frames
         self.process = None
         self.segment = None
         self.frame_count = 0
@@ -60,7 +61,12 @@ class SegmentRecorder:
         self.frame_count, self.started_s = 0, now
 
     def write(self, frame, now):
-        if self.process and now - self.started_s >= self.settings.segment_seconds:
+        duration_reached = (
+            self.frame_count >= round(self.settings.segment_seconds * self.settings.fps)
+            if self.duration_by_frames
+            else now - self.started_s >= self.settings.segment_seconds
+        )
+        if self.process and duration_reached:
             self._finish()
         if not self.process:
             self._start(now)

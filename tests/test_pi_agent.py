@@ -68,6 +68,7 @@ def test_five_second_streak_produces_dashboard_event_and_original_evidence(agent
     assert event["jev"]["model"] == "jev-test"
     assert event["task_description"] == "Assemble parts"
     assert event["captured_at"] == sample.captured_at and event["video_offset_s"] == 5
+    assert event["video_playback_start_s"] == 0 and event["clip_target_s"] == 15
     assert event["session_id"] == sample.session_id
     assert (local.root / "snapshots" / (event["id"] + ".jpg")).read_bytes() == sample.jpeg
     assert local.upload_counts()["pending"] == 1
@@ -346,7 +347,7 @@ def test_forced_alert_bypasses_models_and_uploads_honestly_labeled_evidence(agen
     def finish_clip():
         (local.root / 'recordings' / sample.segment).write_bytes(b'recorded-test-video')
 
-    feed = SimpleNamespace(error=False, snapshot=lambda: sample, close=finish_clip)
+    feed = SimpleNamespace(error=False, start=Mock(), snapshot=lambda: sample, close=finish_clip)
     status = asyncio.run(send_test_alert(agent.settings, local, remote, feed, record_seconds=0))
     assert status == 0
     reviewer.review.assert_not_called()
@@ -363,6 +364,29 @@ def test_forced_alert_bypasses_models_and_uploads_honestly_labeled_evidence(agen
     assert local.upload_counts() == {'pending': 0, 'failed': 0}
 
 
+def test_forced_alert_waits_for_fifteen_encoded_seconds(agent_setup, monkeypatch):
+    import stationwatch.pi_agent as module
+
+    agent, local, _, sample = agent_setup
+    samples = iter(replace(sample, monotonic_s=time.monotonic(), video_offset_s=offset)
+                   for offset in (0, 5, 14.8, 15 - 1 / agent.settings.fps))
+    snapshot = Mock(side_effect=lambda: next(samples))
+
+    async def tick(_):
+        pass
+
+    monkeypatch.setattr(module.asyncio, 'sleep', tick)
+    feed = SimpleNamespace(error=False, start=Mock(), snapshot=snapshot,
+                           close=lambda: (local.root / 'recordings' / sample.segment).write_bytes(b'video'))
+    remote = Mock()
+    assert asyncio.run(module.send_test_alert(agent.settings, local, remote, feed)) == 0
+    assert snapshot.call_count == 4
+    feed.start.assert_called_once()
+    event = local.list()[0]
+    assert event['clip_target_s'] == 15 and event['video_playback_start_s'] == 0
+    assert event['video_offset_s'] == 15 - 1 / agent.settings.fps
+
+
 @pytest.mark.parametrize('failure', ['alert', 'clip'])
 def test_forced_alert_upload_failure_is_durable_and_retried(agent_setup, failure, caplog):
     from stationwatch.pi_agent import send_test_alert
@@ -370,7 +394,7 @@ def test_forced_alert_upload_failure_is_durable_and_retried(agent_setup, failure
     agent, local, _, sample = agent_setup
     sample = replace(sample, monotonic_s=time.monotonic())
     clip = local.root / 'recordings' / sample.segment
-    feed = SimpleNamespace(error=False, snapshot=lambda: sample, close=lambda: clip.write_bytes(b'video'))
+    feed = SimpleNamespace(error=False, start=Mock(), snapshot=lambda: sample, close=lambda: clip.write_bytes(b'video'))
     remote = Mock()
     getattr(remote, 'publish_' + failure).side_effect = RuntimeError('secret-password-at-private-host')
     assert asyncio.run(send_test_alert(agent.settings, local, remote, feed, record_seconds=0)) == 1

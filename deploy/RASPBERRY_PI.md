@@ -120,7 +120,7 @@ With the camera streamer running, use another Pi terminal:
   --source http://127.0.0.1:5000/video_feed --station-id workbench-01
 ```
 
-This captures a snapshot and about three seconds of video, uploads one alert,
+This captures a snapshot and a 15-second video, uploads one alert,
 and exits. It bypasses both AI APIs and the duration gate; API keys and `--task`
 are optional for this command. PostgreSQL credentials are still required. The
 dashboard labels it **Manual test alert**, with **AI review: Bypassed for test**.
@@ -138,13 +138,18 @@ keeps its existing AI gates.
 
 Confirmed alerts and snapshots are committed to a local SQLite outbox before
 upload. The uploader sends the alert plus snapshot in one PostgreSQL transaction,
-then sends its video once the 30-second H.264 MP4 segment is finalized. Until then,
+then sends its video once the 15-second H.264 MP4 segment is finalized. Until then,
 the website can display the alert and snapshot; its video action asks you to retry.
 Database outages retry with backoff up to five minutes. Stable IDs make retries
 idempotent and preserve the manager's reviewed status. No database calls run when
 there is nothing queued. Normal observations and continuous video are not sent
 to PostgreSQL; only confirmed alerts and their containing segments are uploaded.
 Jev receives the sampled frames, and Gemini receives snapshots selected for review.
+The dashboard plays new clips from the beginning, showing the full recording
+rather than seeking to the last few seconds around the alert. The alert's actual
+offset remains recorded in the event metadata. A clip is the 15-second segment
+containing the flagged frame, so the amount of footage before and after that frame
+depends on its position in the segment.
 
 Local state defaults to `data/pi-<station-id>/`; override it with `--data-dir`.
 Use the same directory after restarting so queued uploads survive. One agent may
@@ -152,8 +157,13 @@ use a directory at a time; a process lock enforces that. Unflagged finalized
 segments expire after 24 hours. Confirmed events and their recordings are retained
 locally and in PostgreSQL until manually removed. Allow sufficient disk space.
 A containing segment can include normal behavior around the alert. Encoded video
-offsets follow the actual frame count; under capture lag playback speed can differ
-from wall-clock duration.
+offsets follow the actual frame count. Segment rollover uses frame count to keep
+completed uploaded clips 15 seconds long even when capture is slower than the
+configured FPS; under capture lag, collecting that footage can take longer than
+15 seconds and playback speed can differ from wall-clock duration. Manual test
+mode also waits for 15 seconds of encoded footage before uploading. If capture
+is interrupted or the agent is stopped before an active segment fills, the
+finalized recording can be shorter.
 
 Ctrl+C and SIGTERM stop sampling, finish an active review, finalize the recording,
 and attempt a final upload. Camera or encoder failure exits with an error;

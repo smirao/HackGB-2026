@@ -35,6 +35,7 @@ from .temporal import SustainedFlag
 from .uploads import EvidenceUploader
 
 log = logging.getLogger(__name__)
+ALERT_CLIP_SECONDS = 15
 
 
 def utc_now():
@@ -197,7 +198,8 @@ class PiAgent:
             event_id = uuid.uuid4().hex
             event = make_event(event_id, sample, self.settings, features,
                                JevPrediction(True, result["confidence"]), review, "image", utc_now())
-            event.update(jev=result, task_description=self.settings.task_description)
+            event.update(jev=result, task_description=self.settings.task_description,
+                         video_playback_start_s=0, clip_target_s=ALERT_CLIP_SECONDS)
             # SQLite + snapshot are durable before the independent database uploader sees them.
             await asyncio.to_thread(self.store.add, event, sample.jpeg)
             self.last_confirmed = time.monotonic()
@@ -245,11 +247,12 @@ class PiAgent:
                     await self.review_task
 
 
-async def send_test_alert(settings, store, remote, feed, record_seconds=3):
+async def send_test_alert(settings, store, remote, feed, record_seconds=ALERT_CLIP_SECONDS):
     """Capture one explicitly marked manual alert without calling either model."""
     log.info("MANUAL TEST: recording camera evidence; Jev and Gemini are bypassed")
     # Retry older manual tests from this separate outbox before creating a new one.
     await asyncio.to_thread(EvidenceUploader(store, remote).run_once)
+    feed.start()
     loop = asyncio.get_running_loop()
     first_frame_deadline = loop.time() + 10
     started = None
@@ -260,7 +263,8 @@ async def send_test_alert(settings, store, remote, feed, record_seconds=3):
         if sample is not None and time.monotonic() - sample.monotonic_s <= 1.5:
             if started is None:
                 started = loop.time()
-            if loop.time() - started >= record_seconds:
+            # MP4 duration follows encoded frame count, even if the camera runs below its requested FPS.
+            if sample.video_offset_s + 1 / settings.fps >= record_seconds:
                 break
         elif started is None and loop.time() >= first_frame_deadline:
             raise RuntimeError("No camera frame arrived for the test alert")
@@ -278,7 +282,8 @@ async def send_test_alert(settings, store, remote, feed, record_seconds=3):
         "image", utc_now(),
     )
     event.update(test_alert=True, alert_source="manual_test", review_model="manual_test",
-                 task_description=settings.task_description, jev=None)
+                 task_description=settings.task_description, jev=None,
+                 video_playback_start_s=0, clip_target_s=record_seconds)
     await asyncio.to_thread(store.add, event, sample.jpeg)
     await asyncio.to_thread(feed.close)
     if feed.error:
@@ -348,6 +353,7 @@ def main():
                 "pi-" + args.station_id + ("-manual-test" if args.force_alert else "")
             ),
             sample_interval_s=1, flag_duration_s=5, analysis_backend="image",
+            segment_seconds=2 * ALERT_CLIP_SECONDS if args.force_alert else ALERT_CLIP_SECONDS,
             gemini_model=args.gemini_model,
             gemini_threshold=args.gemini_threshold, event_cooldown_s=args.cooldown,
         )
@@ -369,12 +375,11 @@ def main():
             remote = PostgresEventStore.from_env()
             uploader = EvidenceUploader(local, remote, poll_s=5)
             stack.callback(uploader.close)
-            recorder = SegmentRecorder(settings, local)
+            recorder = SegmentRecorder(settings, local, duration_by_frames=True)
             stack.callback(recorder.close)
             feed = CameraFeed(settings, recorder)
             stack.callback(feed.close)
             if args.force_alert:
-                feed.start()
                 return asyncio.run(send_test_alert(settings, local, remote, feed))
             reviewer = GeminiReviewer(settings, os.environ["GEMINI_API_KEY"])
             stack.callback(reviewer.close)

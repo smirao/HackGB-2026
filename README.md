@@ -122,7 +122,8 @@ python -m stationwatch.hub
 
 Open **http://127.0.0.1:8080** on that computer. Alerts appear only when Gemini
 confirms an off-task streak. Snapshots upload first; video becomes available once
-its 30-second recording segment closes. Database failures keep confirmed alerts
+its 15-second recording segment closes. Playback starts at the beginning so the
+full clip is visible. Database failures keep confirmed alerts
 in a local queue for retry.
 
 Press **Ctrl+C** in the agent terminal to stop, finalize the active recording,
@@ -182,7 +183,7 @@ python pi_agent.py --force-alert \
   --station-id workbench-01
 ```
 
-This records about three seconds of camera footage, sends **one manual test
+This records a 15-second video, sends **one manual test
 alert** with its snapshot and video to PostgreSQL, then exits. It bypasses Jev,
 Gemini, and the five-second gate, so neither API key is required for this command.
 The dashboard shows **Manual test alert** and **AI review: Bypassed for test**.

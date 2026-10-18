@@ -663,15 +663,16 @@
             const video = $("video-slot").querySelector("video");
             video.src = url;
             video.onloadedmetadata = () => {
-              video.currentTime = Math.max(0, e.video_offset_s - 2);
+              video.currentTime = e.video_playback_start_s ?? Math.max(0, e.video_offset_s - 2);
             };
             video.onerror = () => {
               if (selected === e.id)
                 $("video-note").textContent =
                   "This recording could not be decoded.";
             };
-            $("video-note").textContent =
-              "Playback starts approximately 2 seconds before the alert within this recording segment.";
+            $("video-note").textContent = e.video_playback_start_s === 0
+              ? "Showing the full alert recording from the beginning."
+              : "Playback starts approximately 2 seconds before the alert within this recording segment.";
           } catch (err) {
             if (selected === e.id) $("video-note").textContent = err.message;
           } finally {
