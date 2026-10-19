@@ -3,10 +3,10 @@
 > **EyesUp** (this project) won the **Industrial Track** at [HackGB 2026](https://hackgb.com/), UW–Green Bay's 24-hour collegiate hackathon hosted by GDG on Campus. See our [Devpost submission](https://devpost.com/software/sauron-n34cge).
 >
 > **Team:**
-> [Hunter McDaniel](https://devpost.com/redzoloman) ·
-> [Aaron Fraser](https://devpost.com/ajf4500) ·
-> [Silverio Mirao](https://github.com/smirao) ·
-> [Owen Kromrey](https://devpost.com/yoruowl)
+> - Silverio Mirao ([GitHub](https://github.com/smirao) · [Devpost](https://devpost.com/smirao))
+> - Aaron Fraser ([GitHub](https://github.com/BowWarrior) · [Devpost](https://devpost.com/ajf4500))
+> - Owen Kromrey ([GitHub](https://github.com/yoruowl) · [Devpost](https://devpost.com/yoruowl))
+> - Hunter McDaniel ([GitHub](https://github.com/OhSoSerpent) · [Devpost](https://devpost.com/redzoloman))
 
 ---
 
