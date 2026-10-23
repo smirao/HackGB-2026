@@ -57,7 +57,7 @@ cp .env.pi.example .env
 nano .env
 ```
 
-Fill in your real credentials and station details:
+Fill in your real credentials and station details. The TASK_DESCRIPTION is the prompt to JEV that the person working should be doing which we later check against:
 
 ```dotenv
 TYPESAFE_API_KEY=your-typesafe-api-key
